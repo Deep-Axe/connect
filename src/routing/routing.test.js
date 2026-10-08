@@ -21,7 +21,7 @@ import * as Types from '../actions/types';
 import {
   selectNavLocation, selectSelectedRouteId, selectSelectedRouteMissing, selectSelectionOutOfRange, selectView,
 } from './selectors';
-import { checkRoutesData } from '../actions';
+import { checkRoutesData, leaveForExternalUrl, renameDevice } from '../actions';
 import { MODALS, modalOf } from './codec';
 import {
   closeModal, driveBack, leavePage, openModal, openedInteractively, toDashboard, toDriveRange, toPrime,
@@ -34,6 +34,7 @@ const api = vi.hoisted(() => ({
   listDevices: vi.fn(),
   getProfile: vi.fn(),
   fetchDevice: vi.fn(),
+  setDeviceAlias: vi.fn(),
 }));
 
 vi.mock('../api/backend', () => ({
@@ -42,7 +43,7 @@ vi.mock('../api/backend', () => ({
   api: {
     auth: { isAuthenticated: () => api.authenticated, logOut: vi.fn() },
     account: { getProfile: api.getProfile },
-    devices: { listDevices: api.listDevices, fetchDevice: api.fetchDevice },
+    devices: { listDevices: api.listDevices, fetchDevice: api.fetchDevice, setDeviceAlias: api.setDeviceAlias },
     routes: { getRoutesSegments: api.getRoutesSegments },
   },
 }));
@@ -788,3 +789,26 @@ describe('dialog review fixes', () => {
   });
 });
 
+describe('dialog results belong to their session and navigation', () => {
+  it('a rename answered after logout does not reinstall the device', async () => {
+    let answer;
+    api.setDeviceAlias.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    const { store } = await start(`/${A}`);
+    const rename = store.dispatch(renameDevice(A, 'Renamed'));
+    store.dispatch(endSession());
+    answer({ dongle_id: A, alias: 'Renamed', is_owner: true });
+    await rename;
+    expect(store.getState().devices).toBeNull();
+  });
+
+  it('a Stripe redirect answered after the user left the page does not leave the app', async () => {
+    let answer;
+    const { history, store } = await start(`/${A}/prime`);
+    const leaving = store.dispatch(leaveForExternalUrl(() => new Promise((resolve) => { answer = resolve; })));
+    history.push(`/${A}`);
+    await settle();
+    answer('https://billing.stripe.com/session');
+    expect(await leaving).toBe(false);
+    expect(hardNavigate).not.toHaveBeenCalled();
+  });
+});

@@ -5,7 +5,7 @@ import { withStyles, Typography, Button, Modal, Paper, CircularProgress } from '
 import * as Sentry from '@sentry/react';
 
 import { api } from '../../api/backend';
-import { updateDevices, analyticsEvent } from '../../actions';
+import { refreshDevices, analyticsEvent } from '../../actions';
 import { MODALS, modalOf } from '../../routing/codec';
 import { openModal, openedInteractively, toDashboard } from '../../routing/navigate';
 import { verifyPairToken, pairErrorToMessage } from '../../utils';
@@ -117,6 +117,7 @@ export class AddDeviceDialog extends Component {
     };
 
     this.videoRef = null;
+    this.cameraAttempt = 0;
     this.detector = null;
     this.stream = null;
     this.scanning = false;
@@ -135,6 +136,7 @@ export class AddDeviceDialog extends Component {
   }
 
   async componentDidMount() {
+    this.mounted = true;
     // opened by a click in this session (verified against the history
     // tracker): the click was the interaction, start the camera
     if (this.props.dispatch(openedInteractively())) {
@@ -144,10 +146,12 @@ export class AddDeviceDialog extends Component {
   }
 
   componentWillUnmount() {
+    this.mounted = false;
     this.releaseCamera();
   }
 
   releaseCamera() {
+    this.cameraAttempt += 1; // a camera still being acquired is stopped on arrival
     this.stopScanning();
     if (this.stream) {
       this.stream.getTracks().forEach((track) => track.stop());
@@ -165,25 +169,33 @@ export class AddDeviceDialog extends Component {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         hasCamera = devices.some((d) => d.kind === 'videoinput');
-        this.setState({ hasCamera });
       } catch {
         hasCamera = false;
-        this.setState({ hasCamera });
       }
+      if (!this.mounted) return;
+      this.setState({ hasCamera });
     }
 
     // Initialize detector and camera stream
     if (cameraRequested && this.videoRef && !this.detector && hasCamera && !pairDongleId) {
+      const attempt = this.cameraAttempt;
       try {
         this.detector = new BarcodeDetector({ formats: ['qr_code'] });
-        this.stream = await navigator.mediaDevices.getUserMedia({
+        const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
         });
+        if (!this.mounted || attempt !== this.cameraAttempt || !this.videoRef) {
+          // the dialog closed while permission was pending: don't keep it
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        this.stream = stream;
         this.videoRef.srcObject = this.stream;
         this.videoRef.setAttribute('playsinline', 'true');
         await this.videoRef.play();
         this.startScanning();
       } catch (err) {
+        if (!this.mounted || attempt !== this.cameraAttempt) return;
         let cameraError = 'Unable to access camera.';
         if (err.name === 'NotAllowedError') {
           cameraError = 'Camera access denied. Please allow camera access in your browser settings and try again.';
@@ -365,9 +377,8 @@ export class AddDeviceDialog extends Component {
     try {
       const resp = await api.devices.pilotPair(pairToken);
       if (resp.dongle_id) {
-        const deviceList = await api.devices.listDevices();
         if (devices.length > 0) { // state change from no device to a device requires reload.
-          dispatch(updateDevices(deviceList));
+          await dispatch(refreshDevices());
           dispatch(analyticsEvent('pair_device', { method: 'add_device_sidebar' }));
         }
         this.setState({ pairLoading: false, pairDongleId: resp.dongle_id, pairError: null });

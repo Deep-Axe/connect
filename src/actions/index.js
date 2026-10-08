@@ -403,3 +403,47 @@ export function updateRoute(fullname, route) {
     route,
   };
 }
+
+// Results for dialogs and pages: each belongs to the session it started in
+// (ownedDispatch), so a late answer after logout is dropped by the reducer.
+
+export function refreshDevices() {
+  return async (rawDispatch, getState) => {
+    const dispatch = ownedDispatch(rawDispatch, getState);
+    const devices = await api.devices.listDevices();
+    dispatch(updateDevices(devices));
+    return devices;
+  };
+}
+
+export function renameDevice(dongleId, alias) {
+  return async (rawDispatch, getState) => {
+    const dispatch = ownedDispatch(rawDispatch, getState);
+    const device = await api.devices.setDeviceAlias(dongleId, alias);
+    dispatch(updateDevice(device));
+    return device;
+  };
+}
+
+// The subscription, installed when there is one; returns it either way.
+export function refreshSubscription(dongleId) {
+  return async (rawDispatch, getState) => {
+    const dispatch = ownedDispatch(rawDispatch, getState);
+    const subscription = await Billing.getSubscription(dongleId);
+    if (subscription?.user_id) dispatch(primeGetSubscription(dongleId, subscription));
+    return subscription;
+  };
+}
+
+// Leave for an external page (Stripe) once `getUrl` answers, unless the user
+// navigated elsewhere or the session ended meanwhile.
+export function leaveForExternalUrl(getUrl) {
+  return async (dispatch, getState, services = fallbackServices) => {
+    const { generation } = services.navigation;
+    const epoch = getState().sessionEpoch;
+    const url = await getUrl();
+    if (services.navigation.generation !== generation || getState().sessionEpoch !== epoch) return false;
+    hardNavigate(url);
+    return true;
+  };
+}

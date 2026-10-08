@@ -8,6 +8,7 @@ import { request, athena, billing } from '../api';
 import { webrtcConnectionManager } from '../utils/webrtc';
 import { clearPairToken } from '../routing/pairToken';
 import { fallbackServices } from '../routing/services';
+import { stopAllUploadQueuePolls } from './files';
 
 import { ACTION_SESSION_ENDED, ACTION_STARTUP_DATA } from './types';
 
@@ -109,11 +110,7 @@ export function endSession() {
       console.error('Could not clear the pairing token', error);
       Sentry.captureException(error, { fingerprint: 'session_clear_pair_token' });
     });
-    if (services.uploads.timer) clearTimeout(services.uploads.timer);
-    services.uploads.timer = null;
-    services.uploads.run += 1;
-    services.uploads.inFlight = false;
-    services.uploads.request = null;
+    stopAllUploadQueuePolls(services);
     Sentry.setUser(null);
     dispatch({ type: ACTION_SESSION_ENDED });
   };

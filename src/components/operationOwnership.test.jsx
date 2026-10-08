@@ -9,7 +9,7 @@ vi.mock('../api', () => ({ USERADMIN_URL_ROOT: '', billing: { getSubscribeInfo: 
 vi.mock('../api/clips', () => ({deviceSupportsClips: vi.fn()}));
 vi.mock('../api/backend', () => ({ api: { devices: { pilotPair: mocks.pair, listDevices: mocks.list } } }));
 vi.mock('localforage', () => ({ default: { getItem: mocks.token, removeItem: mocks.remove } }));
-vi.mock('../actions', () => ({ analyticsEvent: () => ({type:'analytics'}), updateDevices: devices => ({type:'devices',devices}), primeGetSubscription: () => ({type:'subscription'}), updateRoute: vi.fn() }));
+vi.mock('../actions', () => ({ analyticsEvent: () => ({type:'analytics'}), updateDevices: devices => ({type:'devices',devices}), refreshDevices: () => async dispatch => dispatch({type:'devices',devices:await mocks.list()}), primeGetSubscription: () => ({type:'subscription'}), updateRoute: vi.fn() }));
 vi.mock('../actions/files', () => ({ FILE_NAMES: { qcameras: ['qcamera.ts'] }, fetchUploadUrls: mocks.urls, doUpload: mocks.upload, updateFiles: files => ({type:'files',files}), setRouteViewed: vi.fn(), fetchFiles: vi.fn(), fetchAthenaQueue: vi.fn() }));
 vi.mock('../actions/cached', () => ({ fetchEvents: vi.fn() }));
 vi.mock('./DriveMap', () => ({default:()=>null}));

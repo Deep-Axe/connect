@@ -85,7 +85,7 @@ async function getClipBlob(dongleId, filename, requestedAt, onProgress, isCurren
 
   let entry = activeDownloads.get(key);
   if (!entry) {
-    entry = { cancelled: false, listeners: new Set(), loaded: 0, total: 0 };
+    entry = { cancelled: false, listeners: new Set(), consumers: new Set(), loaded: 0, total: 0 };
     const verify = async () => {
       if (isCurrentVersion && !(await isCurrentVersion())) throw new ClipChangedError();
     };
@@ -95,6 +95,7 @@ async function getClipBlob(dongleId, filename, requestedAt, onProgress, isCurren
       for (const listener of entry.listeners) listener(loaded, total);
     }, () => entry.cancelled)).then(async (blob) => {
       await verify();
+      if (entry.cancelled) throw new Error('Clip download cancelled'); // nobody wants it any more
       if (activeDownloads.get(key) === entry) await clipStorage.setItem(key, blob).catch(() => {});
       return blob;
     }).finally(() => {
@@ -105,9 +106,24 @@ async function getClipBlob(dongleId, filename, requestedAt, onProgress, isCurren
 
   if (onProgress) {
     entry.listeners.add(onProgress);
+    entry.consumers.add(onProgress);
     if (entry.total) onProgress(entry.loaded, entry.total);
   }
   return entry.promise.finally(() => entry.listeners.delete(onProgress));
+}
+
+// A consumer (identified by the progress callback it passed) no longer wants
+// a download; the download is cancelled when its last consumer lets go.
+function releaseClip(dongleId, filename, requestedAt, consumer) {
+  const key = cacheKey(dongleId, filename, requestedAt);
+  const entry = activeDownloads.get(key);
+  if (!entry) return;
+  entry.listeners.delete(consumer);
+  entry.consumers.delete(consumer);
+  if (entry.consumers.size === 0) {
+    entry.cancelled = true;
+    activeDownloads.delete(key);
+  }
 }
 
 async function hasClipBlob(dongleId, filename, requestedAt) {
@@ -171,4 +187,5 @@ export const clipDevice = {
   },
 
   hasClipBlob,
+  releaseClip,
 };

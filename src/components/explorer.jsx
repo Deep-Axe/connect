@@ -14,7 +14,7 @@ import IosPwaPopup from './IosPwaPopup';
 import AppDrawer from './AppDrawer';
 import BodyTeleop from './BodyTeleop';
 
-import { analyticsEvent, updateDevices } from '../actions';
+import { analyticsEvent, refreshDevices } from '../actions';
 import { VIEWS } from '../routing/codec';
 import { leavePage, toDashboard } from '../routing/navigate';
 import { selectNavLocation, selectView } from '../routing/selectors';
@@ -142,10 +142,9 @@ export class ExplorerApp extends Component {
             pairDongleId: resp.dongle_id,
           });
 
-          const devices = await api.devices.listDevices();
+          await operation.dispatch(refreshDevices());
           if (!active()) return;
-          operation.dispatch(updateDevices(devices));
-          this.props.dispatch(analyticsEvent('pair_device', { method: 'url_string' }));
+          operation.dispatch(analyticsEvent('pair_device', { method: 'url_string' }));
         } else {
           if (active()) await operation.dispatch(removePairToken(pairToken));
           if (!active()) return;

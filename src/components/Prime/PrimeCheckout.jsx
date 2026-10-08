@@ -8,7 +8,7 @@ import { deviceNamePretty } from '../../utils';
 import { billing as Billing } from '../../api';
 import Colors from '../../colors';
 import { subscribeWindowSize } from '../../hooks/window';
-import { analyticsEvent, primeFetchSubscription } from '../../actions';
+import { analyticsEvent, leaveForExternalUrl, primeFetchSubscription } from '../../actions';
 import { leavePage } from '../../routing/navigate';
 import { CheckIcon, ErrorOutline, InfoOutline, KeyboardBackspaceIcon } from '../../icons';
 import CommacareIcon from '../../icons/commacare.png';
@@ -281,13 +281,11 @@ class PrimeCheckout extends Component {
     try {
       const { selectedPlan: plan } = this.state;
       const simId = plan === 'data' ? subscribeInfo.sim_id : undefined;
-      const resp = await Billing.getStripeCheckout(
-        dongleId,
-        simId,
-        plan,
-      );
-      dispatch(analyticsEvent('prime_checkout', { plan }));
-      window.location = resp.url;
+      await dispatch(leaveForExternalUrl(async () => {
+        const resp = await Billing.getStripeCheckout(dongleId, simId, plan);
+        dispatch(analyticsEvent('prime_checkout', { plan }));
+        return resp.url;
+      }));
     } catch (err) {
       // TODO show error messages
       console.error(err);

@@ -5,9 +5,8 @@ import * as Sentry from '@sentry/react';
 import { withStyles, Typography, IconButton } from '@material-ui/core';
 
 import MyCommaAuth from '@commaai/my-comma-auth';
-import { api } from '../../api/backend';
 
-import { updateDevices } from '../../actions';
+import { refreshDevices } from '../../actions';
 import Colors from '../../colors';
 import { deviceNamePretty, deviceIsOnline, filterRegularClick, emptyDevice } from '../../utils';
 import { SettingsIcon } from '../../icons';
@@ -105,8 +104,7 @@ class DeviceList extends Component {
     const { dispatch } = this.props;
     if (MyCommaAuth.isAuthenticated()) {
       try {
-        const devices = await api.devices.listDevices();
-        dispatch(updateDevices(devices));
+        await dispatch(refreshDevices());
       } catch (err) {
         console.error(err);
         Sentry.captureException(err, { fingerprint: 'devicelist_visible_listdevices' });

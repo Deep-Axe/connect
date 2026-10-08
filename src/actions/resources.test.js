@@ -62,8 +62,8 @@ it('a hung old queue cannot block the new session and its finally cannot clear t
  mocks.rpc.mockImplementation((_d,p)=>p.method==='listUploadQueue'?new Promise(resolve=>{if(!oldDone)oldDone=resolve;else newDone=resolve;}):Promise.resolve({result:1}));
  const old=h.dispatch(fetchUploadQueue(A));await tick();h.dispatch(endSession());
  const fresh=h.dispatch(fetchUploadQueue(A));await tick();expect(newDone).toBeTypeOf('function');
- oldDone({result:[]});await old;expect(h.services.uploads.inFlight).toBe(true);
- newDone({result:[]});await fresh;expect(h.services.uploads.inFlight).toBe(false);
+ oldDone({result:[]});await old;expect(h.services.uploads.targets.get(A).inFlight).toBe(true);
+ newDone({result:[]});await fresh;expect(h.services.uploads.targets.get(A).inFlight).toBe(false);
 });
 it('an unsupported batch reply after logout cannot start its upload fallback',async()=>{
  const h=harness();let reply;h.set({...h.getState(),device:{dongle_id:A,openpilot_version:'0.9.9'}});

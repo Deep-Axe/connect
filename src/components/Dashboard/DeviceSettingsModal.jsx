@@ -14,7 +14,7 @@ import {
 } from '@material-ui/core';
 
 import { api } from '../../api/backend';
-import { updateDevice } from '../../actions';
+import { renameDevice } from '../../actions';
 import { toPrime } from '../../routing/navigate';
 import Colors from '../../colors';
 import { CheckIcon, ErrorOutline, SaveIcon, ShareIcon, WarningIcon } from '../../icons';
@@ -186,8 +186,7 @@ class DeviceSettingsModal extends Component {
       hasSavedAlias: false,
     });
     try {
-      const device = await api.devices.setDeviceAlias(dongleId, this.state.deviceAlias.trim());
-      this.props.dispatch(updateDevice(device));
+      await this.props.dispatch(renameDevice(dongleId, this.state.deviceAlias.trim()));
       this.setState({
         loadingDeviceAlias: false,
         hasSavedAlias: true,

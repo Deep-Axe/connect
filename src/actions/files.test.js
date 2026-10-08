@@ -3,38 +3,74 @@ import { describe, expect, it, vi } from 'vitest';
 const athena = vi.hoisted(() => ({ postJsonRpcPayload: vi.fn() }));
 vi.mock('../api', () => ({ athena, billing: {} }));
 
-const { fetchUploadQueue } = await import('./files');
+const { cancelUploads, fetchUploadQueue, pollUploadQueue, stopPollingUploadQueue, uploadQueuePollers } = await import('./files');
 const { createRoutingServices } = await import('../routing/services');
+const { default: reducer } = await import('../reducers/globalState');
+const { createInitialState } = await import('../initialState');
 
 const A = 'aaaaaaaaaaaaaaaa';
+const B = 'bbbbbbbbbbbbbbbb';
+const LOG = '2026-08-06--12-00-00';
 
-function run(thunk, state, services) {
-  const dispatched = [];
+// a store-like harness with the real reducer
+function harness(overrides = {}) {
+  let state = { ...createInitialState(), dongleId: A, device: { dongle_id: A }, devices: [{ dongle_id: A }, { dongle_id: B }], ...overrides };
+  const services = createRoutingServices();
   const dispatch = (action) => (typeof action === 'function'
     ? action(dispatch, () => state, services)
-    : dispatched.push(action));
-  return { promise: thunk(dispatch, () => state, services), dispatched };
+    : (state = reducer(state, action), action));
+  return { dispatch, getState: () => state, services };
 }
+
+const queueItem = (dongleId, id) => ({ id, url: `https://x/${dongleId}/${LOG}/0/qcamera.ts?sig`, progress: 0.5, current: true });
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('upload queue poll', () => {
   it('a reply that is not a queue stops the poll instead of throwing', async () => {
     athena.postJsonRpcPayload.mockResolvedValue({ result: {} });
-    const services = createRoutingServices();
-    const state = { dongleId: A, sessionEpoch: 0, device: { dongle_id: A }, devices: [], filesUploading: {} };
-    const { promise, dispatched } = run(fetchUploadQueue(A), state, services);
-    await expect(promise).resolves.toBeUndefined();
-    expect(services.uploads.timer).toBeNull();
-    expect(services.uploads.inFlight).toBe(false);
-    expect(dispatched.some((a) => a.type === 'ACTION_FILES_UPLOADING')).toBe(false);
+    const h = harness();
+    await expect(h.dispatch(fetchUploadQueue(A))).resolves.toBeUndefined();
+    const target = h.services.uploads.targets.get(A);
+    expect(target.timer).toBeNull();
+    expect(target.inFlight).toBe(false);
   });
 
-  it('each store has its own poll', async () => {
+  it('each store has its own poll', () => {
     athena.postJsonRpcPayload.mockReturnValue(new Promise(() => {})); // never answers
-    const one = createRoutingServices();
-    const two = createRoutingServices();
-    const state = { dongleId: A, sessionEpoch: 0, device: { dongle_id: A }, devices: [], filesUploading: {} };
-    run(fetchUploadQueue(A), state, one);
-    expect(one.uploads.inFlight).toBe(true);
-    expect(two.uploads.inFlight).toBe(false);
+    const one = harness();
+    const two = harness();
+    one.dispatch(fetchUploadQueue(A));
+    expect(one.services.uploads.targets.get(A).inFlight).toBe(true);
+    expect(two.services.uploads.targets.get(A)).toBeUndefined();
+  });
+
+  it("another device's queue loads over the selected one without touching it", async () => {
+    athena.postJsonRpcPayload.mockImplementation(async (dongleId, { method }) => (
+      method === 'listUploadQueue' ? { result: [queueItem(dongleId, `${dongleId}-1`)] } : { result: {} }
+    ));
+    const h = harness();
+    const menu = {};
+    const dialog = {};
+    h.dispatch(pollUploadQueue(menu, A)); // A's drive menu
+    h.dispatch(pollUploadQueue(dialog, B)); // B's upload panel over A's drive
+    await settle(); await settle();
+    const state = h.getState();
+    expect(Object.keys(state.uploadQueues[B].uploading)).toEqual([`${B}-1`]);
+    expect(Object.keys(state.uploadQueues[A].uploading)).toEqual([`${A}-1`]);
+    expect(Object.keys(state.filesUploading)).toEqual([`${A}-1`]); // the selected device's view
+    expect(h.dispatch(uploadQueuePollers(B))).toBe(1);
+
+    // B's cancellation edits B's queue only
+    athena.postJsonRpcPayload.mockResolvedValue({ result: { success: true } });
+    await h.dispatch(cancelUploads(B, [`${B}-1`]));
+    expect(h.getState().uploadQueues[B].uploading).toEqual({});
+    expect(Object.keys(h.getState().filesUploading)).toEqual([`${A}-1`]);
+
+    // closing B's panel stops B's poll, A's keeps going
+    h.dispatch(stopPollingUploadQueue(dialog));
+    expect(h.services.uploads.targets.get(B).timer).toBeNull();
+    expect(h.services.uploads.targets.get(A).timer).not.toBeNull();
+    h.dispatch(stopPollingUploadQueue(menu));
+    expect(h.dispatch(uploadQueuePollers())).toBe(0);
   });
 });
