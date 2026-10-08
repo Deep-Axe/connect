@@ -161,6 +161,9 @@ export class AddDeviceDialog extends Component {
   }
 
   async componentDidUpdate() {
+    // React detaches refs during unmount. Their callbacks must not acquire
+    // another camera after releaseCamera has cleared the detector.
+    if (!this.mounted || this.closing) return;
     const { cameraRequested, pairLoading, pairError, pairDongleId } = this.state;
     let { hasCamera } = this.state;
 
