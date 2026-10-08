@@ -6,7 +6,7 @@ export function ownedDispatch(dispatch, getState) {
   const owned = (action) => {
     if (!isCurrent()) return undefined;
     return typeof action === 'function'
-      ? dispatch((_dispatch, ...rest) => isCurrent() ? action(owned, ...rest) : undefined)
+      ? dispatch((_dispatch, ...rest) => (isCurrent() ? action(owned, ...rest) : undefined))
       : dispatch({ ...action, epoch });
   };
   owned.isCurrent = isCurrent;
@@ -20,13 +20,11 @@ export function captureOperation({ resource = () => true, location = false } = {
   return (dispatch, getState) => {
     const epoch = getState().sessionEpoch;
     const initialLocation = getState().nav?.location;
-    const isCurrent = () => getState().sessionEpoch === epoch && resource(getState())
+    const isCurrent = () =>
+      getState().sessionEpoch === epoch
+      && resource(getState())
       && (!location || getState().nav?.location === initialLocation);
     const sessionDispatch = ownedDispatch(dispatch, getState);
-    return {
-      epoch,
-      isCurrent,
-      dispatch: (action) => isCurrent() ? sessionDispatch(action) : undefined,
-    };
+    return { epoch, isCurrent, dispatch: (action) => (isCurrent() ? sessionDispatch(action) : undefined) };
   };
 }

@@ -274,13 +274,17 @@ class ClipMenu extends Component {
       if (named.length === 1) {
         this.props.onResolvePreview(named[0]);
       } else {
-        this.showPreviewProblem(named.length ? 'Several clips have this name; choose one from the list.' : 'This clip is no longer on the device.');
+        this.showPreviewProblem(named.length
+          ? 'Several clips have this name; choose one from the list.'
+          : 'This clip is no longer on the device.');
       }
       return;
     }
     const clip = named.find((candidate) => clipVersion(candidate) === preview.requestedAt);
     if (!clip) {
-      this.showPreviewProblem(named.length ? 'This clip changed on the device since the link was made.' : 'This clip is no longer on the device.');
+      this.showPreviewProblem(named.length
+        ? 'This clip changed on the device since the link was made.'
+        : 'This clip is no longer on the device.');
     } else if (clip.status !== 'ready') {
       // not final: look again on the next metadata poll
       this.loadedPreviewKey = null;
@@ -560,7 +564,12 @@ class ClipMenu extends Component {
     if (!preview || (!viewingClip && !previewProblem)) return null;
     if (previewProblem) {
       return (
-        <Dialog manager={clipModalManager} open={Boolean(preview)} onClose={onClosePreview} classes={{ paper: classes.deletePaper }}>
+        <Dialog
+          manager={clipModalManager}
+          open={Boolean(preview)}
+          onClose={onClosePreview}
+          classes={{ paper: classes.deletePaper }}
+        >
           <DialogTitle className={classes.deleteTitle}>Clip unavailable</DialogTitle>
           <DialogContent>
             <Typography className={classes.deleteContent}>{previewProblem}</Typography>
@@ -577,7 +586,13 @@ class ClipMenu extends Component {
       ? formatDuration((viewingClip.source_end_time - viewingClip.source_start_time) / (viewingClip.speedup || 1))
       : '';
     return (
-      <Dialog manager={clipModalManager} open={Boolean(preview && viewingClip)} onClose={onClosePreview} classes={{ paper: classes.viewerPaper }} maxWidth="md">
+      <Dialog
+        manager={clipModalManager}
+        open={Boolean(preview && viewingClip)}
+        onClose={onClosePreview}
+        classes={{ paper: classes.viewerPaper }}
+        maxWidth="md"
+      >
         <DialogTitle disableTypography className={classes.viewerTitle}>
           <div className={classes.viewerDetails}>
             <Typography className={`${classes.header} ${classes.viewerHeader}`}>{title}</Typography>
@@ -711,7 +726,7 @@ class ClipMenu extends Component {
     return (
       <>
         <Dialog
-        manager={clipModalManager}
+          manager={clipModalManager}
           open={open}
           onClose={onClose}
           aria-label="Clips"

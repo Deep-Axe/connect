@@ -7,7 +7,9 @@ const UnavailableDialog = ({ message, onClose }) => (
       <Typography variant="title">Not available</Typography>
       <Typography className="mt-3">{message}</Typography>
       <div className="mt-4">
-        <Button variant="contained" onClick={onClose}>Close</Button>
+        <Button variant="contained" onClick={onClose}>
+          Close
+        </Button>
       </div>
     </Paper>
   </Modal>

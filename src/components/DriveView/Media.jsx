@@ -666,7 +666,8 @@ export class Media extends Component {
                 className={classes.mediaOption}
                 style={deviceIsOnline(device) ? {} : { opacity: 0.7 }}
                 aria-haspopup="true"
-                onClick={() => deviceIsOnline(device) && this.props.dispatch(openModal(modalOf(MODALS.CLIPS, { dongleId: this.props.dongleId })))}
+                onClick={() => deviceIsOnline(device)
+                  && this.props.dispatch(openModal(modalOf(MODALS.CLIPS, { dongleId: this.props.dongleId })))}
               >
                 <Typography className={classes.mediaOptionText}>Clip</Typography>
               </div>

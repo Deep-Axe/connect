@@ -17,9 +17,7 @@ import { ACTION_PAIR_REQUESTED, ACTION_PRIME_STRIPE_RESULT } from '../actions/ty
 import { bootstrapSession } from '../actions/session';
 import { webrtcConnectionManager } from '../utils/webrtc';
 import { getDeviceFromState } from '../utils';
-import {
-  VIEWS, buildUrl, deviceBase, driveBase, isSafeReturnUrl, locationFor, withoutCommands,
-} from './codec';
+import { VIEWS, buildUrl, deviceBase, driveBase, isSafeReturnUrl, locationFor, withoutCommands } from './codec';
 
 const CONSUMED_COMMANDS = ['pair', 'stripe_success', 'stripe_cancelled'];
 
@@ -38,18 +36,22 @@ function receivePairToken(token, ctx) {
   commands.pairTokens.add(token);
   const epoch = ctx.getState().sessionEpoch;
   const wanted = () => ctx.isLatest() || ctx.getState().nav?.location?.commands.pair === token;
-  const pending = ctx.dispatch(storePairToken(token, wanted)).then((stored) => {
-    if (!stored) {
-      if (ctx.getState().sessionEpoch === epoch) commands.pairTokens.delete(token);
-      return;
-    }
-    if (ctx.getState().sessionEpoch === epoch) ctx.dispatch({ type: ACTION_PAIR_REQUESTED });
-  }).catch((err) => {
-    console.error(err);
-    if (ctx.getState().sessionEpoch === epoch) commands.pairTokens.delete(token); // failed storage remains retryable
-  }).finally(() => {
-    if (commands.pairPromises.get(token) === pending) commands.pairPromises.delete(token);
-  });
+  const pending = ctx
+    .dispatch(storePairToken(token, wanted))
+    .then((stored) => {
+      if (!stored) {
+        if (ctx.getState().sessionEpoch === epoch) commands.pairTokens.delete(token);
+        return;
+      }
+      if (ctx.getState().sessionEpoch === epoch) ctx.dispatch({ type: ACTION_PAIR_REQUESTED });
+    })
+    .catch((err) => {
+      console.error(err);
+      if (ctx.getState().sessionEpoch === epoch) commands.pairTokens.delete(token); // failed storage remains retryable
+    })
+    .finally(() => {
+      if (commands.pairPromises.get(token) === pending) commands.pairPromises.delete(token);
+    });
   commands.pairPromises.set(token, pending);
   return pending;
 }
@@ -112,7 +114,9 @@ async function resolveRoot(next, ctx) {
     // (including an open dialog)
     const latest = ctx.latestLocation();
     const target = {
-      ...locationFor(deviceBase(VIEWS.DASHBOARD, device.dongle_id), latest), hash: latest.hash, modal: latest.modal,
+      ...locationFor(deviceBase(VIEWS.DASHBOARD, device.dongle_id), latest),
+      hash: latest.hash,
+      modal: latest.modal,
     };
     ctx.dispatch(replace(buildUrl(target)));
   }
@@ -161,10 +165,13 @@ export async function runNavigationEffects(previous, next, ctx) {
   // Work from a superseded page cannot enter resources or release its successor.
   if (!ctx.isCurrent()) return;
 
-  const run = (effect) => Promise.resolve().then(() => ctx.isCurrent() ? effect() : undefined).catch((err) => {
-    console.error(err);
-    Sentry.captureException(err, { fingerprint: 'navigation_effect' });
-  });
+  const run = (effect) =>
+    Promise.resolve()
+      .then(() => (ctx.isCurrent() ? effect() : undefined))
+      .catch((err) => {
+        console.error(err);
+        Sentry.captureException(err, { fingerprint: 'navigation_effect' });
+      });
 
   // the stream connection: compare where we are with who actually holds it
   // (not with the previous URL: an intermediate page may never have run its
@@ -178,7 +185,7 @@ export async function runNavigationEffects(previous, next, ctx) {
     webrtcConnectionManager.leaveStream(streaming, { keepWarm: Boolean(left?.rpc?.not_car) });
   }
   if (base.view === VIEWS.INVALID) return;
-  if (Object.keys(next.commands).length && await consumeCommands(next, ctx)) return;
+  if (Object.keys(next.commands).length && (await consumeCommands(next, ctx))) return;
   if (!ctx.isCurrent()) return;
   if (deviceChanged) webrtcConnectionManager.deviceChanged(dongleId);
   if (base.view === VIEWS.STREAM) webrtcConnectionManager.enterStream(base.dongleId);

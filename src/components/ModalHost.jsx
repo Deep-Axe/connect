@@ -70,12 +70,27 @@ const ModalHost = ({ dispatch, location, device, canManage, route, zoom, routes 
           inventoryOnly={!createFrom}
           deviceOnline={deviceIsOnline(device)}
           preview={modal.clip}
-          onPreview={(clip) => dispatch(openModal(modalOf(MODALS.CLIPS, {
-            dongleId: modal.dongleId, clip: { filename: clip.filename, requestedAt: String(clip.requested_at) },
-          })))}
-          onResolvePreview={(clip) => dispatch(openModal(modalOf(MODALS.CLIPS, {
-            dongleId: modal.dongleId, clip: { filename: clip.filename, requestedAt: String(clip.requested_at) },
-          }), { replace: true }))}
+          onPreview={(clip) =>
+            dispatch(
+              openModal(
+                modalOf(MODALS.CLIPS, {
+                  dongleId: modal.dongleId,
+                  clip: { filename: clip.filename, requestedAt: String(clip.requested_at) },
+                }),
+              ),
+            )
+          }
+          onResolvePreview={(clip) =>
+            dispatch(
+              openModal(
+                modalOf(MODALS.CLIPS, {
+                  dongleId: modal.dongleId,
+                  clip: { filename: clip.filename, requestedAt: String(clip.requested_at) },
+                }),
+                { replace: true },
+              ),
+            )
+          }
           onClosePreview={close}
         />
       );

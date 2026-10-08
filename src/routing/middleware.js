@@ -57,13 +57,7 @@ export function createRoutingMiddleware(services) {
     if (!samePage) services.navigation.generation += 1;
     services.navigation.revision += 1;
     const { generation, revision } = services.navigation;
-    store.dispatch({
-      type: NAVIGATION_COMMITTED,
-      location,
-      previous,
-      generation,
-      at: Date.now(),
-    });
+    store.dispatch({ type: NAVIGATION_COMMITTED, location, previous, generation, at: Date.now() });
 
     if (canonical && canonical !== urlOfRouterLocation(routerLocation)) {
       // trailing slash, aliases (/demo), non-canonical numbers: rewrite the
