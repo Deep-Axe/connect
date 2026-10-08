@@ -17,7 +17,7 @@ import BodyTeleop from './BodyTeleop';
 import { analyticsEvent, updateDevices } from '../actions';
 import { VIEWS } from '../routing/codec';
 import { leavePage, toDashboard } from '../routing/navigate';
-import { selectView } from '../routing/selectors';
+import { selectNavLocation, selectView } from '../routing/selectors';
 import Colors from '../colors';
 import { play, pause } from '../timeline/playback';
 import { verifyPairToken, pairErrorToMessage } from '../utils';
@@ -167,13 +167,13 @@ export class ExplorerApp extends Component {
   }
 
   componentDidUpdate(prevProps) {
-    const { pathname, zoom, pairRequests } = this.props;
+    const { zoom, pairRequests } = this.props;
 
     if (prevProps.pairRequests !== pairRequests) {
       this.pairFromStoredToken();
     }
 
-    if (prevProps.pathname !== pathname) {
+    if (prevProps.navLocation !== this.props.navLocation) {
       this.setState({ drawerIsOpen: false });
     }
 
@@ -304,11 +304,11 @@ export class ExplorerApp extends Component {
 
 const stateToProps = (state) => ({
   zoom: state.zoom,
-  pathname: state.router.location.pathname,
   dongleId: state.dongleId,
   devices: state.devices,
   currentRoute: state.currentRoute,
   view: selectView(state),
+  navLocation: selectNavLocation(state),
   pairRequests: state.pairRequests,
   profile: state.profile,
 });

@@ -5,7 +5,8 @@
 import { goBack, push, replace } from 'connected-react-router';
 
 import {
-  VIEWS, buildUrl, deviceBase, driveBase, locationForEdit, locationOfUrl, parentModal, parseLocation,
+  VIEWS, buildUrl, deviceBase, directBaseFor, driveBase, locationFor, locationForEdit, locationOfUrl,
+  modalAllowedOn, parentModal, parseLocation,
   referralsBase, rootBase, sameBase, urlOfRouterLocation,
 } from './codec';
 import { selectNavLocation } from './selectors';
@@ -95,11 +96,16 @@ export function driveBack() {
 
 // Open a task dialog over the current page. The page (including its drive
 // range), unknown query arguments and hash are kept.
+// From a page that can't host it (a legacy link still resolving, not found,
+// stream) the dialog opens on its own direct link instead.
 export function openModal(modal, { replace: replaceEntry = false } = {}) {
   return (dispatch, getState) => {
     const current = selectNavLocation(getState());
     if (!current) return;
-    dispatch(navigateToLocation({ ...current, commands: {}, modal }, { replace: replaceEntry, interactive: true }));
+    const target = modalAllowedOn(current.base, modal)
+      ? { ...current, commands: {}, modal }
+      : { ...locationFor(directBaseFor(modal), current), modal };
+    dispatch(navigateToLocation(target, { replace: replaceEntry, interactive: true }));
   };
 }
 
@@ -125,7 +131,8 @@ export function closeModal() {
 // Dispatch it to get the answer (it needs the store's history tracker).
 export function openedInteractively() {
   return (dispatch, getState, services = fallbackServices) => {
-    const location = getState().router.location;
-    return Boolean(location.state?.interactive && services.history.verifiedParentUrl(location));
+    const { location, action } = getState().router;
+    // a push in this session; Back/Forward onto the entry is not a click
+    return Boolean(action === 'PUSH' && location.state?.interactive && services.history.verifiedParentUrl(location));
   };
 }

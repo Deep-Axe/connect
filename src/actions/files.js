@@ -139,13 +139,33 @@ export function fetchFiles(routeName, nocache = false) {
 
 // The upload queue poll is per store (services.uploads): `inFlight` while a
 // request is out, `timer` for the next poll. Stopping clears the timer and
-// bumps `run`, so a request already out doesn't schedule another.
+// bumps `run`, so a request already out doesn't schedule another. Polling is
+// shared by owners (an open queue, a drive's download menu) and stops when
+// the last one lets go.
 function stopUploadQueueTimer(services) {
   if (services.uploads.timer) clearTimeout(services.uploads.timer);
   services.uploads.timer = null;
   services.uploads.run += 1;
   services.uploads.inFlight = false;
   services.uploads.request = null;
+}
+
+export function pollUploadQueue(owner, dongleId) {
+  return (dispatch, getState, services = fallbackServices) => {
+    services.uploads.owners.add(owner);
+    dispatch(fetchUploadQueue(dongleId));
+  };
+}
+
+export function stopPollingUploadQueue(owner) {
+  return (dispatch, getState, services = fallbackServices) => {
+    services.uploads.owners.delete(owner);
+    if (services.uploads.owners.size === 0) stopUploadQueueTimer(services);
+  };
+}
+
+export function uploadQueuePollers() {
+  return (dispatch, getState, services = fallbackServices) => services.uploads.owners.size;
 }
 
 export function cancelFetchUploadQueue() {
