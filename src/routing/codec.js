@@ -6,9 +6,14 @@
 // where `base` is the page being shown:
 //   { view, dongleId, drive, legacyRange, reason }
 // and drive bounds are milliseconds relative to the route start, always
-// whole seconds (the URL carries seconds). `commands` are one-shot query
-// arguments consumed by services (pair, r, stripe, auth); `extensions` are
-// unknown query arguments preserved in order but never executed.
+// whole seconds (the URL carries seconds). `modal` is the task dialog open
+// over that page, or null:
+//   { kind, dongleId, panel, clip: { filename, requestedAt } | null }
+// A modal has a direct path (/:d/settings) and a contextual query form
+// (?modal=settings&modalDevice=B) over another page; both decode to the
+// same { base, modal }. `commands` are one-shot query arguments consumed by
+// services (pair, r, stripe, auth); `extensions` are unknown query
+// arguments preserved in order but never executed.
 
 import { DEMO_DONGLE_ID } from '../api/demo';
 
@@ -27,6 +32,28 @@ export const VIEWS = Object.freeze({
   AUTH: 'auth',
   INVALID: 'invalid',
 });
+
+export const MODALS = Object.freeze({
+  SETTINGS: 'settings',
+  ADD_DEVICE: 'add-device',
+  CLIPS: 'clips',
+  PRIME_CANCEL: 'cancel',
+  PRIME_CHANGE_PLAN: 'change-plan',
+});
+
+export const SETTINGS_PANELS = ['uploads'];
+
+// pages each modal may open over; stream never takes an overlay
+const MODAL_BASES = {
+  [MODALS.SETTINGS]: [VIEWS.ROOT, VIEWS.DASHBOARD, VIEWS.DRIVE, VIEWS.PRIME, VIEWS.REFERRALS],
+  [MODALS.ADD_DEVICE]: [VIEWS.ROOT, VIEWS.DASHBOARD, VIEWS.DRIVE, VIEWS.PRIME, VIEWS.REFERRALS],
+  [MODALS.CLIPS]: [VIEWS.DASHBOARD, VIEWS.DRIVE],
+  [MODALS.PRIME_CANCEL]: [VIEWS.PRIME],
+  [MODALS.PRIME_CHANGE_PLAN]: [VIEWS.PRIME],
+};
+
+// modal query arguments, each a singleton
+const MODAL_KEYS = ['modal', 'modalDevice', 'panel', 'clip', 'clipRequestedAt'];
 
 // one-shot query arguments, each a singleton
 const COMMAND_KEYS = ['pair', 'r', 'stripe_success', 'stripe_cancelled'];
@@ -55,6 +82,10 @@ export function driveBase(dongleId, logId, start = null, end = null) {
   return { ...emptyBase(VIEWS.DRIVE), dongleId, drive: { logId, start, end } };
 }
 
+export function modalOf(kind, { dongleId = null, panel = null, clip = null } = {}) {
+  return { kind, dongleId, panel, clip };
+}
+
 function secondsToMillis(start, end) {
   if (!UINT_RE.test(start) || !UINT_RE.test(end)) return null;
   const startMs = Number(start) * 1000;
@@ -81,6 +112,27 @@ function splitPath(pathname) {
   } catch {
     return null;
   }
+}
+
+// direct modal paths: the page underneath plus the modal
+function parseModalPath(parts) {
+  const [first, second, third] = parts;
+  const n = parts.length;
+  if (n === 2 && first === 'devices' && second === 'add') {
+    return { base: rootBase(), modal: modalOf(MODALS.ADD_DEVICE) };
+  }
+  if (!DONGLE_ID_RE.test(first)) return null;
+  const dashboard = deviceBase(VIEWS.DASHBOARD, first);
+  if (second === 'settings' && (n === 2 || (n === 3 && SETTINGS_PANELS.includes(third)))) {
+    return { base: dashboard, modal: modalOf(MODALS.SETTINGS, { dongleId: first, panel: third ?? null }) };
+  }
+  if (n === 2 && second === 'clips') {
+    return { base: dashboard, modal: modalOf(MODALS.CLIPS, { dongleId: first }) };
+  }
+  if (n === 3 && second === 'prime' && (third === MODALS.PRIME_CANCEL || third === MODALS.PRIME_CHANGE_PLAN)) {
+    return { base: deviceBase(VIEWS.PRIME, first), modal: modalOf(third, { dongleId: first }) };
+  }
+  return null;
 }
 
 function parseBase(parts) {
@@ -113,29 +165,92 @@ function parseBase(parts) {
   return invalidBase('unknown-path');
 }
 
+// an existing clip's filename is an opaque token: only reject what could
+// escape a path or confuse the device
+function validClipFilename(filename) {
+  // eslint-disable-next-line no-control-regex
+  return typeof filename === 'string' && filename.length > 0 && !/[/\\\u0000-\u001f\u007f]/.test(filename)
+    && filename !== '.' && filename !== '..';
+}
+
+// Combine the path's modal (if any) with the modal query arguments and check
+// the combination. Returns { modal } or { reason } when invalid.
+function resolveModal(base, pathModal, args) {
+  const present = Object.keys(args);
+  if (!pathModal && present.length === 0) return { modal: null };
+  if (pathModal && (args.modal != null || args.modalDevice != null || args.panel != null)) {
+    return { reason: 'invalid-modal' };
+  }
+
+  let modal = pathModal;
+  if (!modal) {
+    if (args.modal == null) return { reason: 'invalid-modal' };
+    modal = modalOf(args.modal, { dongleId: args.modalDevice ?? null, panel: args.panel ?? null });
+  }
+  if (args.clip != null || args.clipRequestedAt != null) {
+    if (args.clip == null) return { reason: 'invalid-modal' };
+    modal = { ...modal, clip: { filename: args.clip, requestedAt: args.clipRequestedAt ?? null } };
+  }
+
+  const { kind } = modal;
+  if (!MODAL_BASES[kind] || !MODAL_BASES[kind].includes(base.view)) return { reason: 'invalid-modal' };
+  const targetsDevice = kind === MODALS.SETTINGS || kind === MODALS.CLIPS;
+  if (targetsDevice) {
+    modal = { ...modal, dongleId: modal.dongleId ?? base.dongleId };
+    if (!DONGLE_ID_RE.test(modal.dongleId || '')) return { reason: 'invalid-modal' };
+  } else if (kind === MODALS.ADD_DEVICE) {
+    if (modal.dongleId != null) return { reason: 'invalid-modal' };
+  } else {
+    // Prime subflows act on the Prime page's device
+    if (modal.dongleId != null && modal.dongleId !== base.dongleId) return { reason: 'invalid-modal' };
+    modal = { ...modal, dongleId: base.dongleId };
+  }
+  if (modal.panel != null && (kind !== MODALS.SETTINGS || !SETTINGS_PANELS.includes(modal.panel))) {
+    return { reason: 'invalid-modal' };
+  }
+  if (modal.clip && (kind !== MODALS.CLIPS || !validClipFilename(modal.clip.filename)
+    || modal.clip.requestedAt === '')) {
+    return { reason: 'invalid-modal' };
+  }
+  return { modal };
+}
+
 export function parseLocation({ pathname = '/', search = '', hash = '' } = {}) {
-  let base = parseBase(splitPath(pathname));
+  const parts = splitPath(pathname);
+  const direct = parts && parseModalPath(parts);
+  let base = direct ? direct.base : parseBase(parts);
   const commands = {};
+  const modalArgs = {};
   const extensions = [];
   const seen = new Set();
   const commandKeys = base.view === VIEWS.AUTH ? [...COMMAND_KEYS, ...AUTH_KEYS] : COMMAND_KEYS;
+  let duplicate = false;
 
   for (const [key, value] of new URLSearchParams(search)) {
-    if (commandKeys.includes(key)) {
-      if (seen.has(key)) {
-        base = invalidBase('duplicate-query-key');
-      }
-      seen.add(key);
-      commands[key] = value;
-    } else {
+    const known = commandKeys.includes(key) || (base.view !== VIEWS.AUTH && MODAL_KEYS.includes(key));
+    if (!known) {
       extensions.push([key, value]);
+      continue;
     }
+    if (seen.has(key)) duplicate = true;
+    seen.add(key);
+    if (commandKeys.includes(key)) commands[key] = value;
+    else modalArgs[key] = value;
+  }
+
+  let modal = null;
+  if (duplicate) {
+    base = invalidBase('duplicate-query-key');
+  } else if (base.view !== VIEWS.INVALID && base.view !== VIEWS.AUTH) {
+    const resolved = resolveModal(base, direct?.modal ?? null, modalArgs);
+    if (resolved.reason) base = invalidBase(resolved.reason);
+    else modal = resolved.modal;
   }
 
   // an invalid location runs nothing: its commands are dropped with it
   return {
     base,
-    modal: null,
+    modal,
     commands: base.view === VIEWS.INVALID ? {} : commands,
     extensions,
     hash: hash === '#' ? '' : hash,
@@ -177,15 +292,56 @@ function buildPath(base) {
   }
 }
 
+// The direct path for a modal over its natural page, or null when the
+// modal is shown over some other page (contextual form).
+function directModalPath(base, modal) {
+  switch (modal.kind) {
+    case MODALS.SETTINGS:
+      return base.view === VIEWS.DASHBOARD && base.dongleId === modal.dongleId
+        ? `/${modal.dongleId}/settings${modal.panel ? `/${modal.panel}` : ''}` : null;
+    case MODALS.ADD_DEVICE:
+      return base.view === VIEWS.ROOT ? '/devices/add' : null;
+    case MODALS.CLIPS:
+      return base.view === VIEWS.DASHBOARD && base.dongleId === modal.dongleId ? `/${modal.dongleId}/clips` : null;
+    default:
+      return `/${base.dongleId}/prime/${modal.kind}`;
+  }
+}
+
+function appendModalArgs(params, base, modal, direct) {
+  if (!direct) {
+    params.append('modal', modal.kind);
+    const targetsDevice = modal.kind === MODALS.SETTINGS || modal.kind === MODALS.CLIPS;
+    if (targetsDevice && modal.dongleId !== base.dongleId) params.append('modalDevice', modal.dongleId);
+    if (modal.panel) params.append('panel', modal.panel);
+  }
+  if (modal.clip) {
+    params.append('clip', modal.clip.filename);
+    if (modal.clip.requestedAt != null) params.append('clipRequestedAt', modal.clip.requestedAt);
+  }
+}
+
 // Returns the canonical URL for a location, or null when it has none
 // (auth callbacks and invalid locations are never rewritten).
 export function buildUrl(location) {
-  const path = buildPath(location.base);
+  let path = buildPath(location.base);
   if (path === null) return null;
+  const { modal } = location;
+  let direct = null;
+  if (modal) {
+    const { reason } = resolveModal(location.base, null, {
+      modal: modal.kind, modalDevice: modal.dongleId ?? undefined, panel: modal.panel ?? undefined,
+      clip: modal.clip?.filename, clipRequestedAt: modal.clip?.requestedAt ?? undefined,
+    });
+    if (reason) throw new Error(`invalid modal: ${modal.kind}`);
+    direct = directModalPath(location.base, modal);
+    if (direct) path = direct;
+  }
   const params = new URLSearchParams();
   for (const key of COMMAND_KEYS) {
     if (location.commands?.[key] != null) params.append(key, location.commands[key]);
   }
+  if (modal) appendModalArgs(params, location.base, modal, Boolean(direct));
   for (const [key, value] of location.extensions || []) params.append(key, value);
   const search = params.toString();
   return `${path}${search ? `?${search}` : ''}${location.hash || ''}`;
@@ -235,7 +391,24 @@ export function withoutCommands(location, keys) {
   return { ...location, commands };
 }
 
-// Same page, ignoring commands, extensions and hash.
+export function sameModal(a, b) {
+  const x = a?.modal ?? null;
+  const y = b?.modal ?? null;
+  if (!x || !y) return x === y;
+  return x.kind === y.kind && x.dongleId === y.dongleId && x.panel === y.panel
+    && x.clip?.filename === y.clip?.filename && x.clip?.requestedAt === y.clip?.requestedAt;
+}
+
+// The modal one level up: settings → (uploads closes to settings), clip
+// preview → clip list, otherwise the page underneath.
+export function parentModal(modal) {
+  if (!modal) return null;
+  if (modal.panel) return { ...modal, panel: null };
+  if (modal.clip) return { ...modal, clip: null };
+  return null;
+}
+
+// Same page, ignoring the modal, commands, extensions and hash.
 export function sameBase(a, b) {
   if (!a || !b) return false;
   const x = a.base;
@@ -281,4 +454,10 @@ export function anonymizedPath(location) {
     default:
       return '/<invalid>';
   }
+}
+
+export function anonymizedModal(location) {
+  const { modal } = location;
+  if (!modal) return null;
+  return [modal.kind, modal.panel, modal.clip ? 'preview' : null].filter(Boolean).join('/');
 }

@@ -5,15 +5,16 @@
 import { goBack, push, replace } from 'connected-react-router';
 
 import {
-  VIEWS, buildUrl, deviceBase, driveBase, locationForEdit, locationOfUrl, parseLocation,
-  referralsBase, rootBase, urlOfRouterLocation,
+  VIEWS, buildUrl, deviceBase, driveBase, locationForEdit, locationOfUrl, parentModal, parseLocation,
+  referralsBase, rootBase, sameBase, urlOfRouterLocation,
 } from './codec';
 import { selectNavLocation } from './selectors';
 import { fallbackServices } from './services';
 
 // Navigate to a complete location. A push records its parent entry so a
 // later "back" can be verified (see services.createHistoryTracker).
-export function navigateToLocation(location, { replace: replaceEntry = false } = {}) {
+// `interactive` marks an entry opened by a user action in this session.
+export function navigateToLocation(location, { replace: replaceEntry = false, interactive = false } = {}) {
   return (dispatch, getState) => {
     const url = buildUrl(location);
     const current = getState().router.location;
@@ -21,7 +22,10 @@ export function navigateToLocation(location, { replace: replaceEntry = false } =
     if (replaceEntry) {
       dispatch(replace(url));
     } else {
-      dispatch(push(url, { parent: { key: current.key ?? null, url: urlOfRouterLocation(current) } }));
+      dispatch(push(url, {
+        parent: { key: current.key ?? null, url: urlOfRouterLocation(current) },
+        ...(interactive ? { interactive: true } : {}),
+      }));
     }
   };
 }
@@ -86,5 +90,42 @@ export function driveBack() {
       && parent.drive.logId === drive.logId
       && (parent.drive.start == null || (parent.drive.start <= drive.start && parent.drive.end >= drive.end));
     dispatch(backOr(wider, driveBase(dongleId, drive.logId), { replace: true }));
+  };
+}
+
+// Open a task dialog over the current page. The page (including its drive
+// range), unknown query arguments and hash are kept.
+export function openModal(modal, { replace: replaceEntry = false } = {}) {
+  return (dispatch, getState) => {
+    const current = selectNavLocation(getState());
+    if (!current) return;
+    dispatch(navigateToLocation({ ...current, commands: {}, modal }, { replace: replaceEntry, interactive: true }));
+  };
+}
+
+// Close the current dialog (or its nested panel/preview) to its parent: back
+// to the verified entry it was opened from when that is the same page,
+// otherwise replace with the deterministic parent from the URL alone.
+export function closeModal() {
+  return (dispatch, getState, services = fallbackServices) => {
+    const current = selectNavLocation(getState());
+    if (!current?.modal) return;
+    const parent = { ...current, commands: {}, modal: parentModal(current.modal) };
+    const parentUrl = services.history.verifiedParentUrl(getState().router.location);
+    if (parentUrl && sameBase(parseLocation(locationOfUrl(parentUrl)), current)) {
+      dispatch(goBack());
+      return;
+    }
+    dispatch(navigateToLocation(parent, { replace: true }));
+  };
+}
+
+// True when the current entry was opened by a user action in this session
+// (not a direct link, refresh or history jump to an unobserved entry).
+// Dispatch it to get the answer (it needs the store's history tracker).
+export function openedInteractively() {
+  return (dispatch, getState, services = fallbackServices) => {
+    const location = getState().router.location;
+    return Boolean(location.state?.interactive && services.history.verifiedParentUrl(location));
   };
 }

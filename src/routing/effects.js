@@ -83,8 +83,8 @@ function consumeCommands(next, ctx) {
   return false;
 }
 
-// `/` shows the remembered or first device, keeping the global arguments
-// and the hash
+// `/` (and add-device's direct link /devices/add) shows the remembered or
+// first device, keeping the global arguments, the hash and an open dialog
 async function resolveRoot(next, ctx) {
   if (!api.auth.isAuthenticated()) return;
   const { devices } = await ctx.session();
@@ -92,8 +92,11 @@ async function resolveRoot(next, ctx) {
   const device = rememberedOrFirstDevice(devices || []);
   if (device) {
     // from the latest location on this page, which may carry newer context
+    // (including an open dialog)
     const latest = ctx.latestLocation();
-    const target = { ...locationFor(deviceBase(VIEWS.DASHBOARD, device.dongle_id), latest), hash: latest.hash };
+    const target = {
+      ...locationFor(deviceBase(VIEWS.DASHBOARD, device.dongle_id), latest), hash: latest.hash, modal: latest.modal,
+    };
     ctx.dispatch(replace(buildUrl(target)));
   }
 }

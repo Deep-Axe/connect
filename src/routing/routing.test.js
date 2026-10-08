@@ -18,9 +18,14 @@ import { bufferVideo, seek } from '../timeline/playback';
 import { currentOffset } from '../timeline';
 import { updateFiles } from '../actions/files';
 import * as Types from '../actions/types';
-import { selectSelectedRouteId, selectSelectedRouteMissing, selectSelectionOutOfRange, selectView } from './selectors';
+import {
+  selectNavLocation, selectSelectedRouteId, selectSelectedRouteMissing, selectSelectionOutOfRange, selectView,
+} from './selectors';
 import { checkRoutesData } from '../actions';
-import { driveBack, leavePage, toDashboard, toDriveRange, toPrime } from './navigate';
+import { MODALS, modalOf } from './codec';
+import {
+  closeModal, driveBack, leavePage, openModal, toDashboard, toDriveRange, toPrime,
+} from './navigate';
 
 const api = vi.hoisted(() => ({
   authenticated: true,
@@ -625,5 +630,98 @@ describe('second verification findings', () => {
     answers[0].resolve([route(A, LOG)]); await settle();
     answers[2].resolve([route(A, OTHER_LOG)]); await settle(); await settle();
     expect(store.getState().routes.map((r) => r.log_id)).toEqual([OTHER_LOG]);
+  });
+});
+
+describe('task dialogs', () => {
+  const settings = (dongleId, panel = null) => modalOf(MODALS.SETTINGS, { dongleId, panel });
+  const url = (history) => `${history.location.pathname}${history.location.search}`;
+
+  it('opening settings for another device over a drive keeps the drive untouched', async () => {
+    const { history, store } = await start(`/${A}/${LOG}/10/20`);
+    const { zoom, loop, currentRoute, nav } = store.getState();
+    const calls = api.getRoutesSegments.mock.calls.length;
+    store.dispatch(openModal(settings(B)));
+    await settle();
+    expect(url(history)).toBe(`/${A}/${LOG}/10/20?modal=settings&modalDevice=${B}`);
+    expect(store.getState().dongleId).toBe(A);
+    expect(store.getState().zoom).toBe(zoom);
+    expect(store.getState().loop).toBe(loop);
+    expect(store.getState().currentRoute).toBe(currentRoute);
+    expect(store.getState().nav.generation).toBe(nav.generation);
+    expect(api.getRoutesSegments).toHaveBeenCalledTimes(calls);
+
+    store.dispatch(closeModal());
+    await settle();
+    expect(url(history)).toBe(`/${A}/${LOG}/10/20`);
+    expect(history.index).toBe(0);
+    expect(store.getState().zoom).toBe(zoom);
+  });
+
+  it('browser Back closes a dialog and Forward reopens it', async () => {
+    const { history, store } = await start(`/${A}`);
+    store.dispatch(openModal(settings(A)));
+    await settle();
+    expect(url(history)).toBe(`/${A}/settings`);
+    history.goBack();
+    await settle();
+    expect(selectNavLocation(store.getState()).modal).toBeNull();
+    history.goForward();
+    await settle();
+    expect(selectNavLocation(store.getState()).modal).toMatchObject({ kind: 'settings', dongleId: A });
+  });
+
+  it('a directly loaded dialog closes to its page with replace', async () => {
+    const { history, store } = await start(`/${A}/settings`);
+    store.dispatch(closeModal());
+    await settle();
+    expect(url(history)).toBe(`/${A}`);
+    expect(history.length).toBe(1);
+  });
+
+  it('the uploads panel closes to settings, and settings to the page', async () => {
+    const { history, store } = await start(`/${A}`);
+    store.dispatch(openModal(settings(A)));
+    await settle();
+    store.dispatch(openModal(settings(A, 'uploads')));
+    await settle();
+    expect(url(history)).toBe(`/${A}/settings/uploads`);
+    store.dispatch(closeModal());
+    await settle();
+    expect(url(history)).toBe(`/${A}/settings`);
+    store.dispatch(closeModal());
+    await settle();
+    expect(url(history)).toBe(`/${A}`);
+    expect(history.index).toBe(0);
+
+    const direct = await start(`/${A}/settings/uploads`);
+    direct.store.dispatch(closeModal());
+    await settle();
+    expect(url(direct.history)).toBe(`/${A}/settings`);
+  });
+
+  it('uploads opened straight from a drive close back to that drive', async () => {
+    const { history, store } = await start(`/${A}/${LOG}`);
+    store.dispatch(openModal(settings(A, 'uploads')));
+    await settle();
+    expect(url(history)).toBe(`/${A}/${LOG}?modal=settings&panel=uploads`);
+    store.dispatch(closeModal());
+    await settle();
+    expect(url(history)).toBe(`/${A}/${LOG}`);
+  });
+
+  it('the add-device link resolves to the remembered dashboard and keeps the dialog', async () => {
+    localStorage.setItem('selectedDongleId', B);
+    const { history, store } = await start('/devices/add');
+    await settle();
+    expect(url(history)).toBe(`/${B}?modal=add-device`);
+    expect(history.length).toBe(1);
+    expect(selectNavLocation(store.getState()).modal).toMatchObject({ kind: 'add-device' });
+  });
+
+  it('an invalid dialog link shows the invalid page without loading', async () => {
+    const { store } = await start(`/${A}/stream?modal=settings`);
+    expect(selectView(store.getState())).toBe('invalid');
+    expect(api.getRoutesSegments).not.toHaveBeenCalled();
   });
 });
