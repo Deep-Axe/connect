@@ -321,10 +321,6 @@ class ClipMenu extends Component {
   }
 
   componentDidUpdate(prevProps, prevState) {
-    if (prevProps.preview !== this.props.preview || prevState.clips !== this.state.clips
-      || prevState.loading !== this.state.loading || prevProps.deviceOnline !== this.props.deviceOnline) {
-      this.syncPreview();
-    }
     const opened = this.props.open && !prevProps.open;
     const routeChanged = this.props.route?.fullname !== prevProps.route?.fullname;
     const deviceChanged = this.props.dongleId !== prevProps.dongleId;
@@ -338,7 +334,19 @@ class ClipMenu extends Component {
       this.previewRequest += 1;
       this.setState({ previewUrl: null, viewingClip: null, previewingClip: null });
     }
-    if ((opened || routeChanged || deviceChanged || reconnected || serviceChanged) && this.props.open) this.loadClips();
+    const previewChanged = prevProps.preview?.filename !== this.props.preview?.filename
+      || prevProps.preview?.requestedAt !== this.props.preview?.requestedAt;
+    const reload = this.props.open && (opened || routeChanged || deviceChanged || reconnected || serviceChanged
+      || (previewChanged && this.props.preview));
+    if (reload) {
+      // A new versioned link needs current metadata before it can be rejected.
+      if (previewChanged) this.closeViewer();
+      this.loadedPreviewKey = null;
+      this.loadClips();
+    } else if (prevProps.preview !== this.props.preview || prevState.clips !== this.state.clips
+      || prevState.loading !== this.state.loading || prevProps.deviceOnline !== this.props.deviceOnline) {
+      this.syncPreview();
+    }
     if (!this.props.deviceOnline && prevProps.deviceOnline) {
       this.stopPolling();
       this.setState({ loading: false });
