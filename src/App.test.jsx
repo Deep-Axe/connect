@@ -217,7 +217,11 @@ async function renderApp(pathname, options = {}) {
 }
 
 describe('whole-app behavior', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
+    // App loads these pages lazily. Transforming them on first use took most
+    // of the first test's 5 s budget, and under a loaded machine it timed out
+    // (the hook has its own, longer budget).
+    await Promise.all([import('./components/explorer'), import('./components/anonymous')]);
     vi.stubGlobal('fetch', vi.fn(mockFetch));
     vi.stubGlobal('PointerEvent', MouseEvent);
     vi.stubGlobal(
