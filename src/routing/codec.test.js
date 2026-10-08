@@ -144,3 +144,86 @@ describe('return targets and analytics', () => {
     expect(anonymizedPath(parse(url))).toBe(expected);
   });
 });
+
+describe('modals', () => {
+  const B = '1111bbbb1111bbbb';
+  const modal = (url) => parse(url).modal;
+
+  it.each([
+    [`/${D}/settings`, { view: VIEWS.DASHBOARD, dongleId: D }, { kind: 'settings', dongleId: D, panel: null }],
+    [`/${D}/settings/uploads`, { view: VIEWS.DASHBOARD }, { kind: 'settings', dongleId: D, panel: 'uploads' }],
+    [`/${D}/${LOG}/10/20?modal=settings&modalDevice=${B}`, { view: VIEWS.DRIVE, drive: { start: 10000 } }, { kind: 'settings', dongleId: B }],
+    [`/${D}/${LOG}?modal=settings&panel=uploads`, { view: VIEWS.DRIVE }, { kind: 'settings', dongleId: D, panel: 'uploads' }],
+    [`/referrals?modal=settings&modalDevice=${B}`, { view: VIEWS.REFERRALS }, { kind: 'settings', dongleId: B }],
+    ['/devices/add', { view: VIEWS.ROOT }, { kind: 'add-device', dongleId: null }],
+    [`/${D}/${LOG}?modal=add-device`, { view: VIEWS.DRIVE }, { kind: 'add-device' }],
+    [`/${D}/clips`, { view: VIEWS.DASHBOARD }, { kind: 'clips', dongleId: D, clip: null }],
+    [`/${D}/clips?clip=a.mp4&clipRequestedAt=1700000000`, { view: VIEWS.DASHBOARD },
+      { kind: 'clips', clip: { filename: 'a.mp4', requestedAt: '1700000000' } }],
+    [`/${D}/clips?clip=a.mp4`, { view: VIEWS.DASHBOARD }, { kind: 'clips', clip: { filename: 'a.mp4', requestedAt: null } }],
+    [`/${D}/${LOG}?modal=clips&modalDevice=${B}`, { view: VIEWS.DRIVE }, { kind: 'clips', dongleId: B }],
+    [`/${D}/prime/cancel`, { view: VIEWS.PRIME }, { kind: 'cancel', dongleId: D }],
+    [`/${D}/prime/change-plan`, { view: VIEWS.PRIME }, { kind: 'change-plan', dongleId: D }],
+  ])('%s', (url, expectedBase, expectedModal) => {
+    expect(base(url)).toMatchObject(expectedBase);
+    expect(modal(url)).toMatchObject(expectedModal);
+  });
+
+  it.each([
+    `/${D}/settings`,
+    `/${D}/settings/uploads`,
+    `/${D}/${LOG}/10/20?modal=settings&modalDevice=${B}`,
+    `/${D}/${LOG}?modal=settings&panel=uploads`,
+    `/referrals?modal=settings&modalDevice=${B}`,
+    '/devices/add',
+    `/${D}?modal=add-device&ci=1#x`,
+    `/${D}/clips?clip=a+b.mp4&clipRequestedAt=1700000000.25`,
+    `/${D}/${LOG}?modal=clips&modalDevice=${B}&clip=a.mp4&clipRequestedAt=5`,
+    `/${D}/prime/cancel`,
+    `/${D}/prime/change-plan`,
+  ])('round-trips %s', (url) => {
+    expect(buildUrl(parse(url))).toBe(url);
+  });
+
+  it.each([
+    [`/${D}?modal=settings`, `/${D}/settings`],
+    [`/${D}?modal=settings&modalDevice=${D}&panel=uploads`, `/${D}/settings/uploads`],
+    [`/${D}?modal=clips`, `/${D}/clips`],
+    ['/?modal=add-device', '/devices/add'],
+    [`/${D}/prime?modal=cancel`, `/${D}/prime/cancel`],
+  ])('canonicalizes %s to its direct path %s', (url, canonical) => {
+    expect(buildUrl(parse(url))).toBe(canonical);
+  });
+
+  it.each([
+    [`/${D}/stream?modal=settings`, 'stream takes no overlay'],
+    [`/${D}/${LOG}?modal=cancel`, 'Prime subflows only on Prime'],
+    [`/${D}/prime/cancel?modal=settings`, 'two modals'],
+    [`/${D}?modal=unknown`, 'unknown modal'],
+    [`/${D}?panel=uploads`, 'panel without a modal'],
+    [`/${D}?modal=clips&panel=uploads`, 'panel on the wrong modal'],
+    [`/${D}?modal=settings&panel=nope`, 'unknown panel'],
+    [`/${D}?modal=settings&modalDevice=nope`, 'invalid target device'],
+    ['/referrals?modal=settings', 'settings with no device to target'],
+    ['/referrals?modal=clips', 'clips over a page without drives'],
+    [`/${D}?modal=add-device&modalDevice=${B}`, 'add-device has no target device'],
+    [`/${D}/clips?clipRequestedAt=5`, 'version without a clip'],
+    [`/${D}/clips?clip=../x`, 'path separator in a clip name'],
+    [`/${D}/clips?clip=..`, 'dot-only clip name'],
+    [`/${D}/clips?clip=a%0Ab`, 'control character in a clip name'],
+    [`/${D}/clips?clip=a&clipRequestedAt=`, 'empty version'],
+    [`/${D}?modal=settings&modal=clips`, 'duplicate modal key'],
+    [`/${D}/settings/other`, 'unknown settings panel path'],
+  ])('%s is invalid (%s)', (url) => {
+    expect(base(url).view).toBe(VIEWS.INVALID);
+    expect(modal(url)).toBeNull();
+  });
+
+  it('treats %20 and + as the same clip name', () => {
+    expect(parse(`/${D}/clips?clip=a%20b.mp4`)).toEqual(parse(`/${D}/clips?clip=a+b.mp4`));
+  });
+
+  it('keeps an existing clip filename exactly as given', () => {
+    expect(modal(`/${D}/clips?clip=My%20Clip.MP4`).clip.filename).toBe('My Clip.MP4');
+  });
+});
