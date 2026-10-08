@@ -13,9 +13,13 @@ function assetExpiry() {
   return Math.floor(Date.now() / 1000) + ASSET_CACHE_TTL_SECONDS;
 }
 
-function reportAssetError(error) {
-  console.error(error);
-  Sentry.captureException(error);
+// Failures of abandoned work (the session ended, a newer route version) are
+// not reported.
+function reportAssetError(error, isCurrent) {
+  if (isCurrent()) {
+    console.error(error);
+    Sentry.captureException(error);
+  }
   return null;
 }
 
@@ -200,7 +204,7 @@ export function fetchEvents(route) {
           requestId: ownership.requestId,
         });
       }
-    }).catch(reportAssetError);
+    }).catch((error) => reportAssetError(error, isCurrent));
   };
 }
 
@@ -239,7 +243,7 @@ export function fetchCoord(route, coordinate, locationKey) {
           requestId: ownership.requestId,
         });
       }
-    }).catch(reportAssetError);
+    }).catch((error) => reportAssetError(error, isCurrent));
   };
 }
 
@@ -278,6 +282,6 @@ export function fetchDriveCoords(route) {
           requestId: ownership.requestId,
         });
       }
-    }).catch(reportAssetError);
+    }).catch((error) => reportAssetError(error, isCurrent));
   };
 }

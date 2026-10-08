@@ -261,6 +261,29 @@ it('logout blocks late asset persistence and a new session can retry the same ve
   expect(h.getState().entities.routes[route.fullname].events[0].route_offset_millis).toBe(20);
 });
 
+it('reports a failed asset request, but not one abandoned by the session', async () => {
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const h = harness();
+  vi.stubGlobal('fetch', vi.fn(async () => {
+    throw new TypeError('Failed to fetch');
+  }));
+  await h.dispatch(fetchEvents(route));
+  expect(consoleError).toHaveBeenCalledTimes(1);
+
+  consoleError.mockClear();
+  let fail;
+  vi.stubGlobal('fetch', vi.fn(() => new Promise((_resolve, reject) => {
+    fail = reject;
+  })));
+  const abandoned = h.dispatch(fetchEvents(route));
+  await tick();
+  h.dispatch(endSession());
+  fail(new TypeError('Failed to fetch'));
+  await abandoned;
+  expect(consoleError).not.toHaveBeenCalled();
+  consoleError.mockRestore();
+});
+
 it('a cached empty asset is reused only for its matching immutable version', async () => {
   const h = harness();
   const read = vi.fn(async () => []);
