@@ -95,7 +95,15 @@ export function checkRoutesData({ force = false } = {}) {
         if (!Array.isArray(data)) throw new Error('Missing route list response');
         const routes = data.map(normalizeRoute).sort((a, b) => b.create_time - a.create_time);
         dispatch({
-          type: Types.ACTION_ROUTE_LIST_LOADED, key, dongleId, start: filter.start, end: filter.end, limit, routes, requestId, fetchedAt: Date.now(),
+          type: Types.ACTION_ROUTE_LIST_LOADED,
+          key,
+          dongleId,
+          start: filter.start,
+          end: filter.end,
+          limit,
+          routes,
+          requestId,
+          fetchedAt: Date.now(),
         });
       },
     );
@@ -127,7 +135,9 @@ export function checkRouteDetail({ force = false } = {}) {
         if (!route && !api.auth.isAuthenticated()) {
           // signed out and not public: log in, returning to this drive, if it
           // is still the one on screen
-          if (current.sessionEpoch === epoch && services.navigation.generation === generation && selectedRouteFullname(current) === fullname) {
+          const stillShown = current.sessionEpoch === epoch && services.navigation.generation === generation
+            && selectedRouteFullname(current) === fullname;
+          if (stillShown) {
             hardNavigate(`/?${new URLSearchParams({ r: urlOfRouterLocation(current.router.location) })}`);
           }
         }

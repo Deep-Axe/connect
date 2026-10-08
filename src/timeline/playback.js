@@ -1,8 +1,8 @@
-import { selectCurrentRoute } from '../selectors';
 // basic helper functions for controlling playback
 // we shouldn't want to edit the raw state most of the time, helper functions are better
 import * as Types from '../actions/types';
 import { currentOffset } from '.';
+import { selectCurrentRoute } from '../selectors';
 
 export function reducer(_state, action) {
   let state = { ..._state };

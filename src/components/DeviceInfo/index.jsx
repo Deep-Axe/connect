@@ -1,4 +1,3 @@
-import { selectRoutes } from '../../selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
@@ -18,7 +17,7 @@ import VisibilityHandler from '../VisibilityHandler';
 import { subscribeWindowSize } from '../../hooks/window';
 import CommacareBadge from '../CommacareBadge';
 import { LivestreamIcon, CarBatteryIcon, CameraIcon, ContentCut, GamepadIcon } from '../../icons';
-import { selectDevice } from '../../selectors';
+import { selectDevice, selectRoutes } from '../../selectors';
 
 const styles = (theme) => ({
   container: {

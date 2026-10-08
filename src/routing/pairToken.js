@@ -1,5 +1,7 @@
 import localforage from 'localforage';
 
+import { fallbackServices } from './services';
+
 // One small persistence barrier per store: a token write, read, conditional
 // removal and logout cleanup cannot pass each other while storage yields.
 function serialize(services, operation) {
@@ -10,7 +12,7 @@ function serialize(services, operation) {
 }
 
 export function storePairToken(token, isWanted = () => true) {
-  return (_dispatch, getState, services) => {
+  return (_dispatch, getState, services = fallbackServices) => {
     const epoch = getState().sessionEpoch;
     const revision = (services.commands.pairStorageRevision ?? 0) + 1;
     services.commands.pairStorageRevision = revision;
@@ -29,14 +31,14 @@ export function storePairToken(token, isWanted = () => true) {
 }
 
 export function readPairToken() {
-  return (_dispatch, getState, services) => {
+  return (_dispatch, getState, services = fallbackServices) => {
     const epoch = getState().sessionEpoch;
     return serialize(services, () => getState().sessionEpoch === epoch ? localforage.getItem('pairToken') : null);
   };
 }
 
 export function removePairToken(token) {
-  return (_dispatch, getState, services) => {
+  return (_dispatch, getState, services = fallbackServices) => {
     const epoch = getState().sessionEpoch;
     return serialize(services, async () => {
       if (!token || getState().sessionEpoch !== epoch) return false;

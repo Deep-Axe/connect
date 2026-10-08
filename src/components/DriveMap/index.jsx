@@ -1,4 +1,3 @@
-import { selectCurrentRoute } from '../../selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 
@@ -7,6 +6,7 @@ import ReactMapGL, { LinearInterpolator } from 'react-map-gl';
 import { fetchDriveCoords } from '../../actions/cached';
 import { currentOffset } from '../../timeline';
 import { DEFAULT_LOCATION, MAPBOX_STYLE, MAPBOX_TOKEN } from '../../utils/geocode';
+import { selectCurrentRoute } from '../../selectors';
 
 const INTERACTION_TIMEOUT = 5000;
 

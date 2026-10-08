@@ -1,4 +1,3 @@
-import { selectSubscription } from '../../resources/selectors';
 import { useEffect, useRef } from 'react';
 import { connect } from 'react-redux';
 
@@ -10,6 +9,7 @@ import { MODALS } from '../../routing/codec';
 import { closeModal } from '../../routing/navigate';
 import { selectNavLocation } from '../../routing/selectors';
 import { selectDevice } from '../../selectors';
+import { selectSubscription } from '../../resources/selectors';
 
 const CloseOnMount = ({ onMount }) => {
   useEffect(() => { onMount(); }, []); // eslint-disable-line react-hooks/exhaustive-deps

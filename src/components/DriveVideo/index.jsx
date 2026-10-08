@@ -1,4 +1,3 @@
-import { selectCurrentRoute, selectRoutes } from '../../selectors';
 /* eslint-disable camelcase */
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
@@ -12,6 +11,7 @@ import { ErrorOutline } from '../../icons';
 import { currentOffset } from '../../timeline';
 import { seek, bufferVideo } from '../../timeline/playback';
 import { isIos, isFirefox } from '../../utils/browser.js';
+import { selectCurrentRoute } from '../../selectors';
 
 // Leading-edge debounce: run immediately, then ignore calls until `wait` ms after the last one.
 function debounceLeading(func, wait) {
@@ -359,7 +359,6 @@ const stateToProps = (state) => ({
   offset: state.offset,
   startTime: state.startTime,
   isBufferingVideo: state.isBufferingVideo,
-  routes: selectRoutes(state),
   currentRoute: selectCurrentRoute(state),
 });
 

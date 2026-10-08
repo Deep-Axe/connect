@@ -1,4 +1,3 @@
-import { selectSubscription } from '../../resources/selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
@@ -21,6 +20,7 @@ import Colors from '../../colors';
 import { CheckIcon, ErrorOutline, SaveIcon, ShareIcon, WarningIcon } from '../../icons';
 import UploadQueue from '../Files/UploadQueue';
 import CommacareBadge, { COMMACARE_URL } from '../CommacareBadge';
+import { selectSubscription } from '../../resources/selectors';
 
 const styles = (theme) => ({
   modal: {

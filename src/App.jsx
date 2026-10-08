@@ -1,8 +1,7 @@
 import React, { Component, lazy, Suspense } from 'react';
-import { Provider } from 'react-redux';
+import { Provider, connect } from 'react-redux';
 import { Route, Switch, Redirect } from 'react-router-dom';
 import { ConnectedRouter } from 'connected-react-router';
-import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
 
 import MyCommaAuth, { config as AuthConfig, storage as AuthStorage } from '@commaai/my-comma-auth';

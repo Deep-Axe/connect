@@ -1,6 +1,3 @@
-import { captureOperation } from '../../actions/owned';
-import { selectCurrentRoute, selectFilter, selectRoutes } from '../../selectors';
-import { selectFiles } from '../../resources/selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
@@ -28,7 +25,9 @@ import { analyticsEvent, updateRoute, invalidateRoutes } from '../../actions';
 import { fetchEvents } from '../../actions/cached';
 import { attachRelTime } from '../../analytics';
 import { setRouteViewed, fetchFiles, doUpload, fetchUploadUrls, fetchAthenaQueue, updateFiles, FILE_NAMES } from '../../actions/files';
-import { selectDevice } from '../../selectors';
+import { captureOperation } from '../../actions/owned';
+import { selectCurrentRoute, selectDevice, selectFilter } from '../../selectors';
+import { selectFiles } from '../../resources/selectors';
 
 const publicTooltip = 'Making a route public allows anyone with the route name or link to access it.';
 const preservedTooltip = 'Preserving a route will prevent it from being deleted. You can preserve up to 10 routes, or 100 if you have comma prime.';
@@ -975,7 +974,6 @@ export class Media extends Component {
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
   device: selectDevice(state),
-  routes: selectRoutes(state),
   currentRoute: selectCurrentRoute(state),
   zoom: state.zoom,
   loop: state.loop,

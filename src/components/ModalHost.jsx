@@ -1,5 +1,3 @@
-import { selectCurrentRoute, selectRoutes } from '../selectors';
-import { getClipService } from '../actions/clips';
 // Renders the task dialog named by the URL over whatever page is showing.
 // Lives in the explorer shell, so a dialog does not depend on the drawer or
 // any page being mounted, and the page underneath keeps its state.
@@ -17,6 +15,8 @@ import DeviceSettingsModal from './Dashboard/DeviceSettingsModal';
 import { ConnectedAddDeviceDialog } from './Dashboard/AddDevice';
 import ClipMenu from './DriveView/ClipMenu';
 import Unavailable from './utils/UnavailableDialog';
+import { selectCurrentRoute, selectRoutes } from '../selectors';
+import { getClipService } from '../actions/clips';
 
 // The modal's device, once it can be known: null while the device list is
 // still loading, false when this account cannot see it.
