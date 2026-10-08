@@ -142,7 +142,8 @@ function parseBase(parts, pathname) {
   const n = parts.length;
 
   if (n === 0) return rootBase();
-  const callbackPaths = [AuthConfig.AUTH_PATH, AuthConfig.APPLE_REDIRECT_PATH].filter(Boolean)
+  const callbackPaths = [AuthConfig.AUTH_PATH, AuthConfig.APPLE_REDIRECT_PATH]
+    .filter(Boolean)
     .map((path) => path.replace(/\/$/, ''));
   if (callbackPaths.includes(pathname.replace(/\/$/, ''))) return emptyBase(VIEWS.AUTH);
   if (n === 1 && first === 'referrals') return referralsBase();
@@ -283,7 +284,8 @@ function buildPath(base) {
       if (!LOG_ID_RE.test(logId || '')) throw new Error(`invalid log id: ${logId}`);
       if (start == null && end == null) return `/${base.dongleId}/${logId}`;
       // the pure builder only accepts canonical, second-aligned bounds; navigate() rounds
-      const range = (start % 1000 === 0 && end % 1000 === 0) ? secondsToMillis(String(start / 1000), String(end / 1000)) : null;
+      const range =
+        start % 1000 === 0 && end % 1000 === 0 ? secondsToMillis(String(start / 1000), String(end / 1000)) : null;
       if (!range) throw new Error(`invalid drive range: ${start}-${end}`);
       return `/${base.dongleId}/${logId}/${start / 1000}/${end / 1000}`;
     }
@@ -441,13 +443,15 @@ export function sameBase(a, b) {
   if (!a || !b) return false;
   const x = a.base;
   const y = b.base;
-  return x.view === y.view
+  return (
+    x.view === y.view
     && x.dongleId === y.dongleId
     && x.drive?.logId === y.drive?.logId
     && x.drive?.start === y.drive?.start
     && x.drive?.end === y.drive?.end
     && x.legacyRange?.start === y.legacyRange?.start
-    && x.legacyRange?.end === y.legacyRange?.end;
+    && x.legacyRange?.end === y.legacyRange?.end
+  );
 }
 
 // An internal path that is safe to redirect to after login.

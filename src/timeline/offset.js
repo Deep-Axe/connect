@@ -7,7 +7,7 @@ export function offsetAt(state, now) {
     offset = state.loop.startTime;
   } else {
     const playSpeed = state.isBufferingVideo ? 0 : state.desiredPlaySpeed;
-    offset = state.offset + ((now - state.startTime) * playSpeed);
+    offset = state.offset + (now - state.startTime) * playSpeed;
   }
 
   if (offset !== null && state.loop?.startTime) {

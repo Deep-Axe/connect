@@ -14,15 +14,15 @@ export function storePairToken(token, isWanted = () => true) {
     const epoch = getState().sessionEpoch;
     const revision = (services.commands.pairStorageRevision ?? 0) + 1;
     services.commands.pairStorageRevision = revision;
-    const current = () => getState().sessionEpoch === epoch
-      && services.commands.pairStorageRevision === revision && isWanted();
+    const current = () =>
+      getState().sessionEpoch === epoch && services.commands.pairStorageRevision === revision && isWanted();
     return serialize(services, async () => {
       if (!current()) return false;
       await localforage.setItem('pairToken', token);
       if (current()) return true;
       // Successor writes are behind this operation. Remove only our token,
       // including when the current session ended during the storage await.
-      if (await localforage.getItem('pairToken') === token) await localforage.removeItem('pairToken');
+      if ((await localforage.getItem('pairToken')) === token) await localforage.removeItem('pairToken');
       return false;
     });
   };
@@ -31,7 +31,7 @@ export function storePairToken(token, isWanted = () => true) {
 export function readPairToken() {
   return (_dispatch, getState, services) => {
     const epoch = getState().sessionEpoch;
-    return serialize(services, () => getState().sessionEpoch === epoch ? localforage.getItem('pairToken') : null);
+    return serialize(services, () => (getState().sessionEpoch === epoch ? localforage.getItem('pairToken') : null));
   };
 }
 
