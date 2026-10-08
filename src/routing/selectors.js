@@ -14,7 +14,9 @@ export const selectIsStreamView = (state) => selectView(state) === VIEWS.STREAM;
 // The URL names a range that starts after the drive ends.
 export const selectSelectionOutOfRange = (state) => {
   const drive = selectNavLocation(state)?.base.drive;
-  return Boolean(drive && drive.start != null && selectCurrentRoute(state) && drive.start >= selectCurrentRoute(state).duration);
+  return Boolean(
+    drive && drive.start != null && selectCurrentRoute(state) && drive.start >= selectCurrentRoute(state).duration,
+  );
 };
 
 // The selected drive was looked up and does not exist.

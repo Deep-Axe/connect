@@ -14,8 +14,8 @@ export function memoize(fn) {
   return (...args) => {
     let current = root;
     for (const arg of args) {
-      const children = arg !== null && (typeof arg === 'object' || typeof arg === 'function')
-        ? current.objects : current.values;
+      const children =
+        arg !== null && (typeof arg === 'object' || typeof arg === 'function') ? current.objects : current.values;
       if (!children.has(arg)) children.set(arg, node());
       current = children.get(arg);
     }
@@ -64,7 +64,7 @@ export function routeListKey(dongleId, filter, limit) {
 
 // The selected device's list preferences (set when the device is first
 // selected; see the reducer).
-export const selectListPrefs = (state) => (state.dongleId ? state.lists[state.dongleId] ?? null : null);
+export const selectListPrefs = (state) => (state.dongleId ? (state.lists[state.dongleId] ?? null) : null);
 export const selectFilter = (state) => selectListPrefs(state)?.filter ?? null;
 export const selectLimit = (state) => selectListPrefs(state)?.limit ?? LIMIT_INCREMENT;
 
@@ -83,11 +83,14 @@ function routesOf(list, routes) {
   routeArrays.set(list, next);
   return next;
 }
-export const selectRoutes = (state) => routesOf(state.queries.routeLists[selectRouteListKey(state)], state.entities.routes);
+export const selectRoutes = (state) =>
+  routesOf(state.queries.routeLists[selectRouteListKey(state)], state.entities.routes);
 
-const latestListOf = memoize((lists, dongleId) => Object.values(lists)
-  .filter((list) => list.dongleId === dongleId)
-  .reduce((latest, list) => (!latest || list.fetchedAt > latest.fetchedAt ? list : latest), null));
+const latestListOf = memoize((lists, dongleId) =>
+  Object.values(lists)
+    .filter((list) => list.dongleId === dongleId)
+    .reduce((latest, list) => (!latest || list.fetchedAt > latest.fetchedAt ? list : latest), null),
+);
 
 // What the drive list shows: the current list, or while it loads the most
 // recently loaded list for this device (replaces the old lastRoutes copy).

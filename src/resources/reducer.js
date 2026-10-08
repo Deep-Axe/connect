@@ -2,13 +2,7 @@ import * as Types from '../actions/types';
 import { invalidateRouteQueries } from './invalidateRoutes';
 
 function withQueries(state, name, key, query) {
-  return {
-    ...state,
-    queries: {
-      ...state.queries,
-      [name]: { ...state.queries?.[name], [key]: query },
-    },
-  };
+  return { ...state, queries: { ...state.queries, [name]: { ...state.queries?.[name], [key]: query } } };
 }
 
 function mergeFiles(state, files) {

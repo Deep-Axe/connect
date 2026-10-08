@@ -11,7 +11,12 @@ import { storePairToken } from './pairToken';
 import { api } from '../api/backend';
 import { selectDevices } from '../selectors';
 import {
-  checkRouteDetail, checkRoutesData, fetchDeviceOnline, fetchSharedDevice, primeFetchSubscription, invalidateSubscription,
+  checkRouteDetail,
+  checkRoutesData,
+  fetchDeviceOnline,
+  fetchSharedDevice,
+  primeFetchSubscription,
+  invalidateSubscription,
 } from '../actions';
 import { ACTION_PAIR_REQUESTED, ACTION_PRIME_STRIPE_RESULT } from '../actions/types';
 import { bootstrapSession } from '../actions/session';

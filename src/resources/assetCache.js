@@ -7,7 +7,8 @@ const STORES = ['events', 'coords', 'driveCoords'];
 function transactionDone(transaction) {
   return new Promise((resolve, reject) => {
     transaction.oncomplete = () => resolve();
-    transaction.onerror = transaction.onabort = () => reject(transaction.error || new Error('Cache transaction failed'));
+    transaction.onerror = transaction.onabort = () =>
+      reject(transaction.error || new Error('Cache transaction failed'));
   });
 }
 
@@ -16,10 +17,11 @@ export function createAssetCache(indexedDB = globalThis.indexedDB, marker = crea
   let generation = 0;
   let barrier = Promise.resolve();
   let purgePending = marker.pending();
-  const expired = record => !Number.isFinite(record?.expiry) || record.expiry <= Math.floor(Date.now() / 1000);
+  const expired = (record) => !Number.isFinite(record?.expiry) || record.expiry <= Math.floor(Date.now() / 1000);
   const open = () => {
     if (!indexedDB) return Promise.resolve(null);
-    if (!database) database = new Promise((resolve) => {
+    if (database) return database;
+    database = new Promise((resolve) => {
       let settled = false;
       const finish = (db) => {
         settled = true;
@@ -76,7 +78,10 @@ export function createAssetCache(indexedDB = globalThis.indexedDB, marker = crea
             cursor.continue();
           };
         }
-        transactionDone(transaction).then(() => finish(db), () => finish(db));
+        transactionDone(transaction).then(
+          () => finish(db),
+          () => finish(db),
+        );
       };
     }).then((db) => {
       if (!db) database = null; // a temporary open failure may be retried
@@ -88,17 +93,19 @@ export function createAssetCache(indexedDB = globalThis.indexedDB, marker = crea
   const purge = () => {
     purgePending ||= marker.pending();
     if (!purgePending) return barrier;
-    barrier = barrier.then(async () => {
-      if (!purgePending) return;
-      const db = await open();
-      if (!db) return; // keep the obligation: the next access must retry it
-      const transaction = db.transaction(STORES, 'readwrite');
-      for (const name of STORES) transaction.objectStore(name).clear();
-      await transactionDone(transaction);
-      purgePending = !marker.complete();
-    }).catch(() => {
-      // Retain the purge obligation; a later access retries clearing.
-    });
+    barrier = barrier
+      .then(async () => {
+        if (!purgePending) return;
+        const db = await open();
+        if (!db) return; // keep the obligation: the next access must retry it
+        const transaction = db.transaction(STORES, 'readwrite');
+        for (const name of STORES) transaction.objectStore(name).clear();
+        await transactionDone(transaction);
+        purgePending = !marker.complete();
+      })
+      .catch(() => {
+        // Retain the purge obligation; a later access retries clearing.
+      });
     return barrier;
   };
   const readyDatabase = async () => {

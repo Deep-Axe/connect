@@ -8,7 +8,7 @@ const service = vi.hoisted(() => ({
   releaseClip: vi.fn(),
   revokeClipUrl: vi.fn(),
 }));
-vi.mock('../../api/clips', () => ({ clipDevice: service, ClipChangedError: class extends Error {} }));
+vi.mock('../../api/clips', () => ({ ClipChangedError: class extends Error {} }));
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -62,9 +62,12 @@ it('new preview URLs reload metadata and release old video', async () => {
 });
 
 it('a failed new version leaves its retry button accessible', async () => {
-  vi.stubGlobal('URL', class extends URL {
-    static revokeObjectURL = vi.fn();
-  });
+  vi.stubGlobal(
+    'URL',
+    class extends URL {
+      static revokeObjectURL = vi.fn();
+    },
+  );
   const clip = {
     filename: 'retry.mp4',
     requested_at: 100,
@@ -75,7 +78,8 @@ it('a failed new version leaves its retry button accessible', async () => {
   };
   service.getClipState.mockImplementation(async () => ({ clips: [clip] }));
   service.hasClipBlob.mockResolvedValue(false);
-  service.getClipUrl.mockResolvedValueOnce('blob:old-version')
+  service.getClipUrl
+    .mockResolvedValueOnce('blob:old-version')
     .mockRejectedValueOnce(new Error('Download failed'))
     .mockResolvedValueOnce('blob:new-version');
   const props = {

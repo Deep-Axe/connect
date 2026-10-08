@@ -49,9 +49,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 describe('upload queue poll', () => {
   it('an unrecognized queue filename is skipped instead of rejecting the poll', async () => {
     athena.postJsonRpcPayload.mockResolvedValue({
-      result: [{
-        id: 'odd', url: `https://x/${A}/${LOG}/0/not-a-camera.bin`, progress: 0.2, current: true,
-      }],
+      result: [{ id: 'odd', url: `https://x/${A}/${LOG}/0/not-a-camera.bin`, progress: 0.2, current: true }],
     });
     const h = harness();
     await expect(h.dispatch(fetchUploadQueue(A))).resolves.toBeUndefined();

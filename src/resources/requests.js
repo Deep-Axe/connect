@@ -40,12 +40,15 @@ export function runResourceRequest(services, getState, key, load, commit, force 
   requests.latest.set(ownerIdentity, request);
   requests.pending.set(identity, request);
   const isCurrent = () => getState().sessionEpoch === epoch && requests.latest.get(ownerIdentity) === request;
-  request.promise = Promise.resolve().then(() => isCurrent() ? load() : null).then((value) => {
-    if (isCurrent()) commit(value, { epoch, requestId: request.sequence, isCurrent });
-    return isCurrent() ? value : null;
-  }).finally(() => {
-    if (requests.pending.get(identity) === request) requests.pending.delete(identity);
-    if (requests.latest.get(ownerIdentity) === request) requests.latest.delete(ownerIdentity);
-  });
+  request.promise = Promise.resolve()
+    .then(() => (isCurrent() ? load() : null))
+    .then((value) => {
+      if (isCurrent()) commit(value, { epoch, requestId: request.sequence, isCurrent });
+      return isCurrent() ? value : null;
+    })
+    .finally(() => {
+      if (requests.pending.get(identity) === request) requests.pending.delete(identity);
+      if (requests.latest.get(ownerIdentity) === request) requests.latest.delete(ownerIdentity);
+    });
   return request.promise;
 }

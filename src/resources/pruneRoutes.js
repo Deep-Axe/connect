@@ -8,9 +8,9 @@ export function pruneRouteLists(state, maximum = MAX_ROUTE_LISTS) {
   if (listEntries.length > maximum) {
     const active = selectRouteListKey(state);
     // Preserve the visible list first, then the most recently fetched lists.
-    listEntries.sort(([keyA, a], [keyB, b]) => (
-      Number(keyB === active) - Number(keyA === active) || b.fetchedAt - a.fetchedAt
-    ));
+    listEntries.sort(
+      ([keyA, a], [keyB, b]) => Number(keyB === active) - Number(keyA === active) || b.fetchedAt - a.fetchedAt,
+    );
     routeLists = Object.fromEntries(listEntries.slice(0, maximum));
   }
 
@@ -41,9 +41,5 @@ export function pruneRouteLists(state, maximum = MAX_ROUTE_LISTS) {
   const routes = Object.fromEntries(
     Object.entries(state.entities.routes).filter(([fullname]) => referenced.has(fullname)),
   );
-  return {
-    ...state,
-    queries: { ...state.queries, routeLists, routeDetails },
-    entities: { ...state.entities, routes },
-  };
+  return { ...state, queries: { ...state.queries, routeLists, routeDetails }, entities: { ...state.entities, routes } };
 }
