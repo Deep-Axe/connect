@@ -306,15 +306,22 @@ class ClipMenu extends Component {
   }
 
   componentDidUpdate(prevProps, prevState) {
-    if (prevProps.preview !== this.props.preview || prevState.clips !== this.state.clips
-      || prevState.loading !== this.state.loading || prevProps.deviceOnline !== this.props.deviceOnline) {
-      this.syncPreview();
-    }
     const opened = this.props.open && !prevProps.open;
     const routeChanged = this.props.route?.fullname !== prevProps.route?.fullname;
     const deviceChanged = this.props.dongleId !== prevProps.dongleId;
     const reconnected = this.props.deviceOnline && !prevProps.deviceOnline;
-    if ((opened || routeChanged || deviceChanged || reconnected) && this.props.open) this.loadClips();
+    const previewChanged = prevProps.preview?.filename !== this.props.preview?.filename
+      || prevProps.preview?.requestedAt !== this.props.preview?.requestedAt;
+    const reload = this.props.open && (opened || routeChanged || deviceChanged || reconnected
+      || (previewChanged && this.props.preview));
+    if (reload) {
+      // A new versioned link needs current metadata before it can be rejected.
+      this.loadedPreviewKey = null;
+      this.loadClips();
+    } else if (prevProps.preview !== this.props.preview || prevState.clips !== this.state.clips
+      || prevState.loading !== this.state.loading || prevProps.deviceOnline !== this.props.deviceOnline) {
+      this.syncPreview();
+    }
     if (!this.props.deviceOnline && prevProps.deviceOnline) {
       this.stopPolling();
       this.setState({ loading: false });
