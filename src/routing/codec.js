@@ -399,6 +399,28 @@ export function sameModal(a, b) {
     && x.clip?.filename === y.clip?.filename && x.clip?.requestedAt === y.clip?.requestedAt;
 }
 
+// Whether `modal` may open over `base` (e.g. never over stream).
+export function modalAllowedOn(base, modal) {
+  return !resolveModal(base, null, {
+    modal: modal.kind, modalDevice: modal.dongleId ?? undefined, panel: modal.panel ?? undefined,
+    clip: modal.clip?.filename, clipRequestedAt: modal.clip?.requestedAt ?? undefined,
+  }).reason;
+}
+
+// The page a modal's direct link opens over: settings and clips over their
+// device's dashboard, add-device over the root, Prime subflows over Prime.
+export function directBaseFor(modal) {
+  switch (modal.kind) {
+    case MODALS.SETTINGS:
+    case MODALS.CLIPS:
+      return deviceBase(VIEWS.DASHBOARD, modal.dongleId);
+    case MODALS.ADD_DEVICE:
+      return rootBase();
+    default:
+      return deviceBase(VIEWS.PRIME, modal.dongleId);
+  }
+}
+
 // The modal one level up: settings → (uploads closes to settings), clip
 // preview → clip list, otherwise the page underneath.
 export function parentModal(modal) {

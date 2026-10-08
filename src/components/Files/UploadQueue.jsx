@@ -6,7 +6,7 @@ import {
   Typography, CircularProgress, Button, Modal, Paper, LinearProgress,
 } from '@material-ui/core';
 
-import { fetchUploadQueue, cancelUploads, cancelFetchUploadQueue, FILE_NAMES } from '../../actions/files';
+import { pollUploadQueue, stopPollingUploadQueue, cancelUploads, FILE_NAMES } from '../../actions/files';
 import { deviceIsOnline, deviceOnCellular, deviceVersionAtLeast } from '../../utils';
 import { HighlightOffIcon, WarningIcon } from '../../icons';
 import Colors from '../../colors';
@@ -150,9 +150,9 @@ class UploadQueue extends Component {
 
   uploadQueue(enable) {
     if (enable) {
-      this.props.dispatch(fetchUploadQueue(this.props.device.dongle_id));
+      this.props.dispatch(pollUploadQueue(this, this.props.device.dongle_id));
     } else {
-      this.props.dispatch(cancelFetchUploadQueue());
+      this.props.dispatch(stopPollingUploadQueue(this));
     }
   }
 

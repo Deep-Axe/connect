@@ -16,7 +16,7 @@ import { webrtcConnectionManager } from '../utils/webrtc';
 import { bootstrapSession, endSession } from '../actions/session';
 import { bufferVideo, seek } from '../timeline/playback';
 import { currentOffset } from '../timeline';
-import { updateFiles } from '../actions/files';
+import { pollUploadQueue, stopPollingUploadQueue, updateFiles, uploadQueuePollers } from '../actions/files';
 import * as Types from '../actions/types';
 import {
   selectNavLocation, selectSelectedRouteId, selectSelectedRouteMissing, selectSelectionOutOfRange, selectView,
@@ -24,7 +24,7 @@ import {
 import { checkRoutesData } from '../actions';
 import { MODALS, modalOf } from './codec';
 import {
-  closeModal, driveBack, leavePage, openModal, toDashboard, toDriveRange, toPrime,
+  closeModal, driveBack, leavePage, openModal, openedInteractively, toDashboard, toDriveRange, toPrime,
 } from './navigate';
 
 const api = vi.hoisted(() => ({
@@ -725,3 +725,66 @@ describe('task dialogs', () => {
     expect(api.getRoutesSegments).not.toHaveBeenCalled();
   });
 });
+
+describe('dialog review fixes', () => {
+  const settings = (dongleId, panel = null) => modalOf(MODALS.SETTINGS, { dongleId, panel });
+  const url = (history) => `${history.location.pathname}${history.location.search}${history.location.hash}`;
+
+  it('a dialog opened from a page that cannot host it opens on its direct link', async () => {
+    api.getRoutesSegments.mockImplementation(async (dongleId, s, e, l, routeStr) => (routeStr || l ? [route(dongleId, LOG)] : []));
+    const legacy = await start(`/${A}/1000/61000`); // lookup came back empty: stays on the legacy page
+    await settle();
+    expect(selectView(legacy.store.getState())).toBe('legacyRange');
+    legacy.store.dispatch(openModal(settings(A)));
+    await settle();
+    expect(url(legacy.history)).toBe(`/${A}/settings`);
+    legacy.store.dispatch(openModal(modalOf(MODALS.ADD_DEVICE)));
+    await settle();
+    expect(url(legacy.history)).toBe(`/${A}?modal=add-device`);
+
+    const notFound = await start('/nonsense');
+    notFound.store.dispatch(openModal(settings(B)));
+    await settle();
+    expect(url(notFound.history)).toBe(`/${B}/settings`);
+  });
+
+  it('opening and closing a dialog keeps unknown arguments and the hash', async () => {
+    const { history, store } = await start(`/${A}/${LOG}?foo=1#h`);
+    store.dispatch(openModal(settings(A)));
+    await settle();
+    expect(url(history)).toBe(`/${A}/${LOG}?modal=settings&foo=1#h`);
+    store.dispatch(closeModal());
+    await settle();
+    expect(url(history)).toBe(`/${A}/${LOG}?foo=1#h`);
+  });
+
+  it('only a click in this session counts as opening a dialog interactively', async () => {
+    const { history, store } = await start(`/${A}`);
+    store.dispatch(openModal(modalOf(MODALS.ADD_DEVICE)));
+    await settle();
+    expect(store.dispatch(openedInteractively())).toBe(true);
+    history.goBack();
+    await settle();
+    history.goForward();
+    await settle();
+    expect(selectNavLocation(store.getState()).modal).toMatchObject({ kind: 'add-device' });
+    expect(store.dispatch(openedInteractively())).toBe(false);
+  });
+
+  it('upload queue polling stops only when its last owner lets go', async () => {
+    const { store } = await start(`/${A}`);
+    const menu = {};
+    const dialog = {};
+    store.dispatch(pollUploadQueue(menu, A));
+    store.dispatch(pollUploadQueue(dialog, A));
+    store.dispatch(stopPollingUploadQueue(dialog));
+    expect(store.dispatch(uploadQueuePollers())).toBe(1);
+    store.dispatch(stopPollingUploadQueue(menu));
+    expect(store.dispatch(uploadQueuePollers())).toBe(0);
+
+    // owners belong to their store
+    const other = await start(`/${A}`);
+    expect(other.store.dispatch(uploadQueuePollers())).toBe(0);
+  });
+});
+

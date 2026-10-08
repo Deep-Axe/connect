@@ -5,6 +5,7 @@ import { createMemoryHistory } from 'history';
 import App from './App';
 import { createInitialState } from './initialState';
 import { selectSelectedRouteId } from './routing/selectors';
+import { updateDevices } from './actions';
 import { createAppStore } from './store';
 
 const mocks = vi.hoisted(() => ({ authenticated: true, options: {}, requests: [], rpcs: [], hardNavigate: vi.fn() }));
@@ -142,7 +143,9 @@ async function mockFetch(input, init = {}) {
     if (listed) return json(listed);
     return json({ alias: 'Shared device', dongle_id: dongleId, device_type: 'threex', is_owner: false, prime: false });
   }
-  if (url.pathname.endsWith('/subscription') || url.pathname.endsWith('/subscribe_info')) return json(null);
+  if (url.pathname.endsWith('/prime/cancel')) return json({ success: true });
+  if (url.pathname.endsWith('/subscription')) return json(options.subscription ?? null);
+  if (url.pathname.endsWith('/subscribe_info')) return json(null);
   if (url.pathname.endsWith('/events.json') || url.pathname.endsWith('/coords.json')) return json([]);
   if (url.pathname.endsWith('/files') || url.pathname.endsWith('/preserved')) return json(url.pathname.endsWith('/files') ? {} : []);
   throw new Error(`Unhandled request: ${init.method || 'GET'} ${url.href}`);
@@ -418,6 +421,23 @@ describe('whole-app behavior', () => {
       expect(mocks.requests.some(({ url: u }) => u.includes('/prime/cancel'))).toBe(false);
       fireEvent.click(screen.getByRole('button', { name: 'Close' }));
       await waitFor(() => expect(url(history)).toBe(`/${FIRST}/prime`));
+    });
+
+    test('cancelling Prime from its link, then losing the subscription, just closes the dialog', async () => {
+      const primeDevices = devices.map((device) => ({ ...device, prime: true, prime_type: 2 }));
+      const subscription = {
+        user_id: 'test-user', plan: 'data', amount: 2400, is_prime_sim: false, trial_end: null,
+        next_charge_at: 1_900_000_000, subscribed_at: 1_700_000_000, cancel_at: null, requires_migration: false,
+      };
+      const { history, store } = await renderApp(`/${FIRST}/prime/cancel`, { devices: primeDevices, subscription });
+      expect(await screen.findByText('Cancel prime subscription')).toBeVisible();
+      expect(mocks.requests.some(({ method, url: u }) => method === 'POST' && u.includes('/prime/cancel'))).toBe(false);
+      fireEvent.click(document.querySelector('.primeModalCancel'));
+      await waitFor(() => expect(mocks.requests.some(({ method, url: u }) => method === 'POST' && u.includes('/prime/cancel'))).toBe(true));
+      // the device list refreshes and the device is no longer on Prime
+      act(() => { store.dispatch(updateDevices(devices)); });
+      await waitFor(() => expect(url(history)).toBe(`/${FIRST}/prime`));
+      expect(screen.queryByText('This device has no comma prime subscription.')).not.toBeInTheDocument();
     });
 
     test('a dialog over a page that cannot take one is an invalid link', async () => {
