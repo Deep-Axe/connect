@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { selectFilesUploading } from '../resources/selectors';
 
 const athena = vi.hoisted(() => ({ postJsonRpcPayload: vi.fn() }));
 vi.mock('../api', () => ({ athena, billing: {} }));
@@ -59,14 +60,14 @@ describe('upload queue poll', () => {
     const state = h.getState();
     expect(Object.keys(state.uploadQueues[B].uploading)).toEqual([`${B}-1`]);
     expect(Object.keys(state.uploadQueues[A].uploading)).toEqual([`${A}-1`]);
-    expect(Object.keys(state.filesUploading)).toEqual([`${A}-1`]); // the selected device's view
+    expect(Object.keys(selectFilesUploading(state))).toEqual([`${A}-1`]); // the selected device's view
     expect(h.dispatch(uploadQueuePollers(B))).toBe(1);
 
     // B's cancellation edits B's queue only
     athena.postJsonRpcPayload.mockResolvedValue({ result: { success: true } });
     await h.dispatch(cancelUploads(B, [`${B}-1`]));
     expect(h.getState().uploadQueues[B].uploading).toEqual({});
-    expect(Object.keys(h.getState().filesUploading)).toEqual([`${A}-1`]);
+    expect(Object.keys(selectFilesUploading(h.getState()))).toEqual([`${A}-1`]);
 
     // closing B's panel stops B's poll, A's keeps going
     h.dispatch(stopPollingUploadQueue(dialog));

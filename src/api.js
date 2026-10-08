@@ -125,8 +125,8 @@ export const billing = {
     billingRequest.configure(accessToken, errorResponseCallback);
   },
 
-  getSubscription: (dongle_id) => billingRequest.get('v1/prime/subscription', { dongle_id }),
-  getSubscribeInfo: (dongle_id) => billingRequest.get('v1/prime/subscribe_info', { dongle_id }),
+  getSubscription: (dongle_id) => billingRequest.request('GET', 'v1/prime/subscription', { dongle_id }, true, true, true),
+  getSubscribeInfo: (dongle_id) => billingRequest.request('GET', 'v1/prime/subscribe_info', { dongle_id }, true, true, true),
   cancelPrime: (dongle_id) => billingRequest.post('v1/prime/cancel', { dongle_id }),
   getStripeCheckout: (dongle_id, sim_id, plan) => (
     billingRequest.post('v1/prime/stripe_checkout', { dongle_id, sim_id, plan })
@@ -174,21 +174,9 @@ export const drives = {
   getPreservedRoutes: (dongleId) => request.get(`v1/devices/${dongleId}/routes/preserved`),
 };
 
-const urlCache = {};
-
-async function getCached(endpoint, params, nocache = false) {
-  const url = params === undefined ? endpoint : `${endpoint}?${stringifyQuery(params)}`;
-  if (urlCache[url] && !nocache) {
-    return urlCache[url];
-  }
-  urlCache[url] = await request.get(url);
-  setTimeout(() => delete urlCache[url], 45 * 60 * 1000);
-  return urlCache[url];
-}
-
 export const raw = {
   getRouteFiles: (routeName, nocache = false, params = undefined) => (
-    getCached(`v1/route/${routeName}/files`, params, nocache)
+    request.get(`v1/route/${routeName}/files`, params)
   ),
   getUploadUrls: (dongleId, paths, expiry) => (
     request.post(`v1/${dongleId}/upload_urls/`, { paths, expiry_days: expiry })

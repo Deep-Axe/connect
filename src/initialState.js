@@ -21,27 +21,21 @@ export function createInitialState() {
     entities: {
       devices: {},          // by dongle id: the account's and shared devices
       deviceOrder: null,    // the account's devices, sorted; null until loaded
+      files: {},
       routes: {},           // by fullname, with events/locations/coords
     },
     queries: {
+      subscriptions: {}, files: {},
       routeLists: {},       // by `${dongleId}|${start}|${end}|${limit}`
       routeDetails: {},     // by fullname: 'loaded' | 'missing'
     },
     runtime: { routes: {} }, // bounded remembered playback, by fullname
     lists: {},              // per device: { filter, limit }
 
-    subscription: null,
-    subscribeInfo: null,
     primeStripeResult: null,
     pairRequests: 0,      // bumped when a pair token arrives by URL
 
-    files: null,
-    filesUploading: {},   // the selected device's upload queue
-    uploadQueues: {},     // every polled device's upload queue, by dongle id
-    filesUploadingMeta: {
-      dongleId: null,
-      fetchedAt: null,
-    },
+    uploadQueues: {},
 
     zoom: null,
     loop: null,

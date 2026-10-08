@@ -8,6 +8,9 @@ import { deviceOnCellular, getDeviceFromState, deviceVersionAtLeast, asyncSleep 
 import { ownedDispatch } from './owned';
 import { selectDevice, selectDeviceById } from '../selectors';
 import { fallbackServices } from '../routing/services';
+import { runResourceRequest } from '../resources/requests';
+import { selectFilesQuery } from '../resources/selectors';
+import { fileInventoryExpiry } from '../resources/freshness';
 
 export const FILE_NAMES = {
   qcameras: ['qcamera.ts'],
@@ -103,37 +106,40 @@ export function updateFiles(files, dongleId = null) {
   };
 }
 
+export function invalidateFiles(fullname) {
+  return { type: Types.ACTION_INVALIDATE_FILES, fullname };
+}
+
 export function fetchFiles(routeName, nocache = false) {
-  return async (rawDispatch, getState) => {
-    const dispatch = ownedDispatch(rawDispatch, getState);
-    let files;
-    try {
-      files = await api.routes.getRouteFiles(routeName, nocache);
-    } catch (err) {
+  return (dispatch, getState, services = fallbackServices) => {
+    const query = selectFilesQuery(getState(), routeName);
+    if (!nocache && query?.status === 'loaded' && query.expiresAt > Date.now()) {
+      return Promise.resolve(query);
+    }
+    return runResourceRequest(services, getState, `files|${routeName}`,
+      () => api.routes.getRouteFiles(routeName, nocache),
+      (files, { epoch, requestId }) => {
+        if (!files || typeof files !== 'object') throw new Error('Missing route file inventory');
+        const urlName = routeName.replace('|', '/');
+        const urls = Object.keys(FILE_NAMES)
+          .filter((type) => Array.isArray(files[type]))
+          .flatMap((type) => files[type].map((url) => [type, url]))
+          .reduce((result, [type, url]) => {
+            const path = new URL(url).pathname;
+            const segment = path.split(urlName)[1]?.split('/')[1];
+            if (!/^\d+$/.test(segment ?? '')) throw new Error('Invalid route file segment');
+            result[`${routeName}--${Number(segment)}/${type}`] = { url };
+            return result;
+          }, {});
+        const fetchedAt = Date.now();
+        dispatch({
+          type: Types.ACTION_FILES_URLS, dongleId: routeName.split('|')[0], fullname: routeName,
+          urls, epoch, requestId, fetchedAt, expiresAt: fileInventoryExpiry(files, fetchedAt),
+        });
+      }, nocache).catch((err) => {
       console.error(err);
       Sentry.captureException(err, { fingerprint: 'action_files_fetch_files' });
-      return;
-    }
-
-    const dongleId = routeName.split('|')[0];
-    const urlName = routeName.replace('|', '/');
-    const urls = Object
-      .keys(FILE_NAMES)
-      .filter((type) => files[type])
-      .flatMap((type) => files[type].map((file) => ([type, file])))
-      .reduce((state, [type, file]) => {
-        const segmentNum = parseInt(file.split(urlName)[1].split('/')[1], 10);
-        const fileName = `${routeName}--${segmentNum}/${type}`;
-        state[fileName] = {
-          url: file,
-        };
-        return state;
-      }, {});
-
-    dispatch({
-      type: Types.ACTION_FILES_URLS,
-      dongleId,
-      urls,
+      return null;
     });
   };
 }

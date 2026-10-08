@@ -11,7 +11,7 @@ import { storePairToken } from './pairToken';
 import { api } from '../api/backend';
 import { selectDevices } from '../selectors';
 import {
-  checkRouteDetail, checkRoutesData, fetchDeviceOnline, fetchSharedDevice, primeFetchSubscription,
+  checkRouteDetail, checkRoutesData, fetchDeviceOnline, fetchSharedDevice, primeFetchSubscription, invalidateSubscription,
 } from '../actions';
 import { ACTION_PAIR_REQUESTED, ACTION_PRIME_STRIPE_RESULT } from '../actions/types';
 import { bootstrapSession } from '../actions/session';
@@ -79,6 +79,10 @@ async function consumeCommands(next, ctx) {
   }
 
   if (commands.stripe_success != null || commands.stripe_cancelled != null) {
+    if (base.dongleId) {
+      dispatch(invalidateSubscription(base.dongleId));
+      dispatch(primeFetchSubscription(base.dongleId, null, null, true));
+    }
     dispatch({
       type: ACTION_PRIME_STRIPE_RESULT,
       dongleId: base.dongleId,

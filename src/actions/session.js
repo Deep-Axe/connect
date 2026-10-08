@@ -9,6 +9,7 @@ import { webrtcConnectionManager } from '../utils/webrtc';
 import { clearPairToken } from '../routing/pairToken';
 import { fallbackServices } from '../routing/services';
 import { stopAllUploadQueuePolls } from './files';
+import { clearResourceRequests } from '../resources/requests';
 
 import { ACTION_SESSION_ENDED, ACTION_STARTUP_DATA } from './types';
 
@@ -90,6 +91,7 @@ export function bootstrapSession() {
 // carrying its epoch are ignored by the reducer.
 export function endSession() {
   return (dispatch, getState, services = fallbackServices) => {
+    clearResourceRequests(services);
     services.session.promise = null;
     services.history.reset();
     services.navigation.generation += 1;

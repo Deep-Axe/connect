@@ -1,3 +1,4 @@
+import { selectFiles } from '../resources/selectors';
 // URL in → state out, through the real store, reducers and middleware. The
 // memory history is wired to the store exactly as ConnectedRouter does it:
 // the initial location is dispatched once, then every history change.
@@ -475,7 +476,7 @@ describe('PR1 verification findings', () => {
 
     // any result started before the end carries the old epoch
     store.dispatch({ type: Types.ACTION_PRIME_SUBSCRIPTION, dongleId: A, subscription: { old: true }, epoch: 0 });
-    expect(store.getState().subscription).toBeNull();
+    expect(store.getState().queries.subscriptions).toEqual({});
   });
 
   it('a fresh bootstrap after the session ended does not reuse the old one', async () => {
@@ -493,7 +494,8 @@ describe('PR1 verification findings', () => {
     history.push(`/${B}`);
     await settle();
     store.dispatch(updateFiles({ [`${A}|${LOG}--0/cameras`]: { progress: 0 } }, A));
-    expect(store.getState().files).toBeNull();
+    expect(selectFiles(store.getState())).toBeNull();
+    expect(store.getState().entities.files[`${A}|${LOG}--0/cameras`]).toEqual({ progress: 0 });
   });
 
   it('a pair token arriving by URL later in the session is stored and handed over', async () => {

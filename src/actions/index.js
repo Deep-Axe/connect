@@ -12,6 +12,9 @@ import {
   LIMIT_INCREMENT, routeListKey, selectDeviceById, selectLimit, selectListPrefs, selectRouteDetail, selectRoutes,
   selectedRouteFullname,
 } from '../selectors';
+import { selectSubscriptionQuery } from '../resources/selectors';
+import { SUBSCRIPTION_FRESH_MS } from '../resources/freshness';
+import { runResourceRequest } from '../resources/requests';
 
 
 function normalizeRoute(payload) {
@@ -51,20 +54,23 @@ export const ROUTES_FRESH_MS = 5 * 60 * 1000;
 
 const isFresh = (entry, now) => Boolean(entry && now - entry.fetchedAt < ROUTES_FRESH_MS);
 
-function runRouteQuery(services, key, force, request, onAnswer) {
+function runRouteQuery(services, getState, key, force, request, onAnswer) {
+  const epoch = getState().sessionEpoch;
   const pending = services.requests.routeQueries.get(key);
   if (pending && !force) return pending;
   services.requests.routeSeq += 1;
   const requestId = services.requests.routeSeq;
   services.requests.routeLatest.set(key, requestId);
-  const promise = Promise.resolve().then(request).then((answer) => {
-    if (services.requests.routeLatest.get(key) === requestId) return onAnswer(answer, requestId);
+  const isCurrent = () => getState().sessionEpoch === epoch && services.requests.routeLatest.get(key) === requestId;
+  const promise = Promise.resolve().then(() => isCurrent() ? request() : null).then((answer) => {
+    if (isCurrent()) return onAnswer(answer, requestId);
     return undefined;
   }).catch((err) => {
     console.error('Failure fetching routes metadata', err);
     Sentry.captureException(err, { fingerprint: 'timeline_fetch_routes' });
   }).finally(() => {
     if (services.requests.routeQueries.get(key) === promise) services.requests.routeQueries.delete(key);
+    if (services.requests.routeLatest.get(key) === requestId) services.requests.routeLatest.delete(key);
   });
   services.requests.routeQueries.set(key, promise);
   return promise;
@@ -82,11 +88,12 @@ export function checkRoutesData({ force = false } = {}) {
     const key = routeListKey(dongleId, filter, limit);
     if (!force && isFresh(state.queries.routeLists[key], Date.now())) return undefined;
     return runRouteQuery(
-      services,
+      services, getState,
       `list|${state.sessionEpoch}|${key}`, force,
       () => api.routes.getRoutesSegments(dongleId, filter.start, filter.end, limit),
       (data, requestId) => {
-        const routes = (data || []).map(normalizeRoute).sort((a, b) => b.create_time - a.create_time);
+        if (!Array.isArray(data)) throw new Error('Missing route list response');
+        const routes = data.map(normalizeRoute).sort((a, b) => b.create_time - a.create_time);
         dispatch({
           type: Types.ACTION_ROUTE_LIST_LOADED, key, dongleId, start: filter.start, end: filter.end, limit, routes, requestId, fetchedAt: Date.now(),
         });
@@ -109,11 +116,13 @@ export function checkRouteDetail({ force = false } = {}) {
     const epoch = state.sessionEpoch;
     const [dongleId] = fullname.split('|');
     return runRouteQuery(
-      services,
+      services, getState,
       `detail|${state.sessionEpoch}|${fullname}`, force,
       () => api.routes.getRoutesSegments(dongleId, undefined, undefined, undefined, fullname),
       (data, requestId) => {
-        const route = data?.length ? normalizeRoute(data[0]) : null;
+        if (!Array.isArray(data)) throw new Error('Missing route detail response');
+        const payload = data.find((item) => item.fullname === fullname);
+        const route = payload ? normalizeRoute(payload) : null;
         const current = getState();
         if (!route && !api.auth.isAuthenticated()) {
           // signed out and not public: log in, returning to this drive, if it
@@ -145,47 +154,40 @@ export function checkLastRoutesData() {
   };
 }
 
-export function primeGetSubscription(dongleId, subscription) {
-  return {
-    type: Types.ACTION_PRIME_SUBSCRIPTION,
-    dongleId,
-    subscription,
+export function primeGetSubscription(dongleId, subscription, metadata = {}) {
+  return { type: Types.ACTION_PRIME_SUBSCRIPTION, dongleId, subscription, ...metadata };
+}
+
+export function invalidateSubscription(dongleId) {
+  return { type: Types.ACTION_INVALIDATE_SUBSCRIPTION, dongleId };
+}
+
+function loadSubscription(dongleId, subscribed, force) {
+  return (dispatch, getState, services = fallbackServices) => {
+    const query = selectSubscriptionQuery(getState(), dongleId);
+    const field = subscribed ? 'subscription' : 'subscribeInfo';
+    if (!force && query?.fetchedAt > 0 && Date.now() - query.fetchedAt < SUBSCRIPTION_FRESH_MS
+      && query.kind === field) return Promise.resolve(query[field]);
+    return runResourceRequest(services, getState, `subscription|${dongleId}`,
+      () => subscribed ? Billing.getSubscription(dongleId) : Billing.getSubscribeInfo(dongleId),
+      (value, { epoch, requestId }) => dispatch({
+        type: subscribed ? Types.ACTION_PRIME_SUBSCRIPTION : Types.ACTION_PRIME_SUBSCRIBE_INFO,
+        dongleId, [field]: value, epoch, requestId, kind: field, fetchedAt: Date.now(),
+      }), force);
   };
 }
 
-export function primeFetchSubscription(dongleId, device, profile) {
-  return (rawDispatch, getState) => {
-    const dispatch = ownedDispatch(rawDispatch, getState);
+export function primeFetchSubscription(dongleId, device, profile, force = false) {
+  return (dispatch, getState) => {
     const state = getState();
-
-    if (!device) {
-      device = selectDeviceById(state, dongleId);
-    }
-    if (!profile && state.profile) {
-      profile = state.profile;
-    }
-
-    if (device && (device.is_owner || profile?.superuser)) {
-      if (device.prime) {
-        Billing.getSubscription(dongleId).then((subscription) => {
-          dispatch(primeGetSubscription(dongleId, subscription));
-        }).catch((err) => {
-          console.error(err);
-          Sentry.captureException(err, { fingerprint: 'actions_fetch_subscription' });
-        });
-      } else {
-        Billing.getSubscribeInfo(dongleId).then((subscribeInfo) => {
-          dispatch({
-            type: Types.ACTION_PRIME_SUBSCRIBE_INFO,
-            dongleId,
-            subscribeInfo,
-          });
-        }).catch((err) => {
-          console.error(err);
-          Sentry.captureException(err, { fingerprint: 'actions_fetch_subscribe_info' });
-        });
-      }
-    }
+    device ??= selectDeviceById(state, dongleId);
+    profile ??= state.profile;
+    if (!device || !(device.is_owner || profile?.superuser)) return Promise.resolve(null);
+    return dispatch(loadSubscription(dongleId, Boolean(device.prime), force)).catch((err) => {
+      console.error(err);
+      Sentry.captureException(err, { fingerprint: 'actions_fetch_subscription' });
+      return null;
+    });
   };
 }
 
@@ -383,11 +385,9 @@ export function renameDevice(dongleId, alias) {
 
 // The subscription, installed when there is one; returns it either way.
 export function refreshSubscription(dongleId) {
-  return async (rawDispatch, getState) => {
-    const dispatch = ownedDispatch(rawDispatch, getState);
-    const subscription = await Billing.getSubscription(dongleId);
-    if (subscription?.user_id) dispatch(primeGetSubscription(dongleId, subscription));
-    return subscription;
+  return (dispatch) => {
+    dispatch(invalidateSubscription(dongleId));
+    return dispatch(loadSubscription(dongleId, true, true));
   };
 }
 

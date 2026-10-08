@@ -1,3 +1,4 @@
+import { selectSubscription } from '../../resources/selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
@@ -436,7 +437,7 @@ const stateToProps = (state, ownProps) => {
   // a device this account knows (listed or fetched), not a placeholder
   const device = state.entities.devices[ownProps.dongleId] ?? null;
   return {
-    subscription: state.subscription,
+    subscription: selectSubscription(state, ownProps.dongleId),
     device,
   };
 };

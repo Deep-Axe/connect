@@ -1,3 +1,4 @@
+import { selectSubscription } from '../../resources/selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import dayjs from 'dayjs';
@@ -799,7 +800,7 @@ export class PrimeManage extends Component {
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
   device: selectDevice(state),
-  subscription: state.subscription,
+  subscription: selectSubscription(state),
   modal: selectNavLocation(state)?.modal?.kind ?? null,
   taskLocation: selectNavLocation(state),
   sessionEpoch: state.sessionEpoch,

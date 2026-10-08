@@ -1,3 +1,4 @@
+import { selectSubscription } from '../../resources/selectors';
 import { useEffect, useRef } from 'react';
 import { connect } from 'react-redux';
 
@@ -50,7 +51,7 @@ const Prime = (props) => {
 };
 
 const stateToProps = (state) => ({
-  subscription: state.subscription,
+  subscription: selectSubscription(state),
   device: selectDevice(state),
   profile: state.profile,
   stripeResult: state.primeStripeResult,

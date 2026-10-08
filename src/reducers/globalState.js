@@ -1,3 +1,4 @@
+import { reduceResources } from '../resources/reducer';
 import * as Types from '../actions/types';
 import { emptyDevice } from '../utils/emptyDevice';
 import { getDefaultFilter } from '../utils/filter';
@@ -33,6 +34,7 @@ function setDeviceList(state, list, fetchedAt) {
     devices[device.dongle_id] = {
       ...previous,
       ...device,
+      shared: Boolean(device.shared),
       ...((previous?.rpc || device.rpc) ? { rpc: { ...previous?.rpc, ...device.rpc } } : {}),
       fetched_at: fetchedAt,
     };
@@ -63,10 +65,7 @@ function applySelectedDevice(state, dongleId, at) {
       ? state.lists
       : { ...state.lists, [dongleId]: { filter: getDefaultFilter(at), limit: LIMIT_INCREMENT } },
     // interim per-device reset, until subscriptions and files are keyed
-    subscription: null,
-    subscribeInfo: null,
     primeStripeResult: null,
-    files: null,
   };
 }
 
@@ -79,11 +78,11 @@ function withRoutes(state, routes) {
 
 // Merge route payloads into their entities, keeping what the payload doesn't
 // carry (events, locations, drive coordinates).
-function mergeRoutes(routes, payloads, requestId = 0, fetchedAt = 0) {
+function mergeRoutes(routes, payloads, requestId = 0, fetchedAt = 0, details = {}) {
   const merged = { ...routes };
   payloads.forEach((route) => {
     const previous = merged[route.fullname];
-    if (previous && previous.metadataRequestId > requestId) return;
+    if (Math.max(previous?.metadataRequestId ?? 0, details[route.fullname]?.requestId ?? 0) > requestId) return;
     const kept = { ...previous };
     if (previous && previous.maxqlog !== route.maxqlog) {
       for (const field of ['events', 'videoStartOffset', 'driveCoords', 'eventsVersion', 'driveCoordsVersion']) delete kept[field];
@@ -134,7 +133,6 @@ function applySelectedDrive(state, previousBase, base, at) {
   }
 
   if (!drive) {
-    if (previousDrive) state.files = null;
     state.zoom = null;
     state.loop = null;
     return state;
@@ -148,10 +146,6 @@ function applySelectedDrive(state, previousBase, base, at) {
   const currentRoute = state.entities.routes[`${base.dongleId}|${drive.logId}`] ?? null;
   const zoom = effectiveZoom(drive, currentRoute);
 
-  if (!sameDrive || !state.zoom || drive.start == null || !zoom
-    || zoom.start < state.zoom.start || zoom.end > state.zoom.end) {
-    state.files = null;
-  }
   // where playback actually is right now (offset is only an anchor: playing
   // advances from it since startTime), under the old selection
   const remembered = !sameDrive ? state.runtime.routes[nextName] : null;
@@ -160,6 +154,7 @@ function applySelectedDrive(state, previousBase, base, at) {
 
   if (!zoom) {
     state.loop = null;
+    if (!sameDrive) { state.offset = null; state.isBufferingVideo = true; }
   } else {
     // the loop is exactly the selection, whether it narrowed or widened
     state.loop = { startTime: zoom.start, duration: zoom.end - zoom.start };
@@ -185,17 +180,12 @@ function clearPrivateState(state) {
     ...state,
     sessionEpoch: (state.sessionEpoch || 0) + 1,
     profile: null,
-    entities: { devices: {}, deviceOrder: null, routes: {} },
-    queries: { routeLists: {}, routeDetails: {} },
+    entities: { devices: {}, deviceOrder: null, routes: {}, files: {} },
+    queries: { routeLists: {}, routeDetails: {}, subscriptions: {}, files: {} },
     lists: {},
     runtime: { routes: {} },
     zoom: null, loop: null, offset: null, desiredPlaySpeed: 0, isBufferingVideo: true,
-    subscription: null,
-    subscribeInfo: null,
     primeStripeResult: null,
-    files: null,
-    filesUploading: {},
-    filesUploadingMeta: { dongleId: null, fetchedAt: null },
     uploadQueues: {},
   };
 }
@@ -214,7 +204,8 @@ function adoptCurrentRoute(state, previousRoute, at) {
     const position = state.offset == null ? null : offsetAt(state, at);
     state.zoom = zoom;
     state.loop = { startTime: zoom.start, duration: zoom.end - zoom.start };
-    if (position != null) { state.offset = Math.max(zoom.start, Math.min(position, zoom.end)); state.startTime = at; }
+    state.offset = position == null ? zoom.start : Math.max(zoom.start, Math.min(position, zoom.end));
+    state.startTime = at;
   }
   return state;
 }
@@ -231,6 +222,8 @@ export default function reducer(_state, action) {
   if (action.epoch !== undefined && action.epoch !== _state.sessionEpoch) {
     return _state;
   }
+  const resourceState = reduceResources(_state, action);
+  if (resourceState) return resourceState;
   let state = { ..._state };
   switch (action.type) {
     case Types.ACTION_STARTUP_DATA:
@@ -308,89 +301,26 @@ export default function reducer(_state, action) {
         ...previous, rpc: { ...previous.rpc, ...action.fields },
       }));
       break;
-    case Types.ACTION_PRIME_SUBSCRIPTION:
-      if (action.dongleId !== state.dongleId) { // ignore outdated info
-        break;
-      }
-      state = {
-        ...state,
-        subscription: action.subscription,
-        subscribeInfo: null,
-      };
-      break;
     case Types.ACTION_PRIME_STRIPE_RESULT:
       if (action.dongleId !== state.dongleId) {
         break;
       }
       state.primeStripeResult = { success: action.success, cancelled: action.cancelled };
       break;
-    case Types.ACTION_PRIME_SUBSCRIBE_INFO:
-      if (action.dongleId !== state.dongleId) {
-        break;
-      }
-      state = {
-        ...state,
-        subscribeInfo: action.subscribeInfo,
-        subscription: null,
-      };
-      break;
-    case Types.ACTION_FILES_URLS:
-      if (action.dongleId !== state.dongleId) break; // late result for another device
-      state.files = {
-        ...(state.files !== null ? { ...state.files } : {}),
-        ...action.urls,
-      };
-      break;
-    case Types.ACTION_FILES_UPDATE:
-      if (action.dongleId !== state.dongleId) break;
-      state.files = {
-        ...(state.files !== null ? { ...state.files } : {}),
-        ...action.files,
-      };
-      break;
-    case Types.ACTION_FILES_UPLOADING:
-      // every polled device keeps its own queue (an upload panel can show
-      // another device's); the selected device's also drives its files
-      state.uploadQueues = { ...state.uploadQueues, [action.dongleId]: { uploading: action.uploading, fetchedAt: action.fetchedAt } };
-      if (action.dongleId !== state.dongleId) break;
-      state.filesUploading = action.uploading;
-      state.filesUploadingMeta = {
-        dongleId: action.dongleId,
-        fetchedAt: action.fetchedAt,
-      };
-      if (Object.keys(action.files).length) {
-        state.files = {
-          ...(state.files !== null ? { ...state.files } : {}),
-          ...action.files,
-        };
-      }
-      break;
-    case Types.ACTION_FILES_CANCELLED_UPLOADS: {
-      const queue = state.uploadQueues?.[action.dongleId];
-      if (queue) {
-        const uploading = Object.fromEntries(Object.entries(queue.uploading).filter(([id]) => !action.ids.includes(id)));
-        state.uploadQueues = { ...state.uploadQueues, [action.dongleId]: { ...queue, uploading } };
-      }
-      if (action.dongleId !== state.dongleId) break;
-      if (state.files) {
-        const cancelFileNames = Object.keys(state.filesUploading)
-          .filter((id) => action.ids.includes(id))
-          .map((id) => state.filesUploading[id].fileName);
-        state.files = Object.keys(state.files)
-          .filter((fileName) => !cancelFileNames.includes(fileName))
-          .reduce((obj, fileName) => { obj[fileName] = state.files[fileName]; return obj; }, {});
-      }
-      state.filesUploading = Object.keys(state.filesUploading)
-        .filter((id) => !action.ids.includes(id))
-        .reduce((obj, id) => { obj[id] = state.filesUploading[id]; return obj; }, {});
-      break;
-    }
     case Types.ACTION_ROUTE_LIST_LOADED: {
       // one list query's answer: written to its own key, never selecting
       const previousRoute = selectCurrentRoute(state);
-      state = withRoutes(state, mergeRoutes(state.entities.routes, action.routes, action.requestId, action.fetchedAt));
+      state = withRoutes(state, mergeRoutes(state.entities.routes, action.routes, action.requestId, action.fetchedAt, state.queries.routeDetails));
+      const details = { ...state.queries.routeDetails };
+      for (const route of action.routes) {
+        const entity = state.entities.routes[route.fullname];
+        if (details[route.fullname]?.status === 'missing' && entity && entity.metadataRequestId === action.requestId) {
+          details[route.fullname] = { status: 'loaded', fetchedAt: action.fetchedAt, requestId: action.requestId };
+        }
+      }
       state.queries = {
         ...state.queries,
+        routeDetails: details,
         routeLists: {
           ...state.queries.routeLists,
           [action.key]: {
@@ -410,17 +340,20 @@ export default function reducer(_state, action) {
     case Types.ACTION_ROUTE_DETAIL_LOADED: {
       // one drive's answer: its route, or that it doesn't exist
       const previousRoute = selectCurrentRoute(state);
+      const existing = state.entities.routes[action.fullname];
+      const previousDetail = state.queries.routeDetails[action.fullname];
+      if (Math.max(existing?.metadataRequestId ?? 0, previousDetail?.requestId ?? 0) > action.requestId) break;
       if (!action.route) {
         const routes = { ...state.entities.routes };
         delete routes[action.fullname];
         state = withRoutes(state, routes);
       }
-      if (action.route) state = withRoutes(state, mergeRoutes(state.entities.routes, [action.route], action.requestId, action.fetchedAt));
+      if (action.route) state = withRoutes(state, mergeRoutes(state.entities.routes, [action.route], action.requestId, action.fetchedAt, state.queries.routeDetails));
       state.queries = {
         ...state.queries,
         routeDetails: {
           ...state.queries.routeDetails,
-          [action.fullname]: { status: action.route ? 'loaded' : 'missing', fetchedAt: action.fetchedAt },
+          [action.fullname]: { status: action.route ? 'loaded' : 'missing', fetchedAt: action.fetchedAt, requestId: action.requestId },
         },
       };
       state = adoptCurrentRoute(state, previousRoute, action.fetchedAt);

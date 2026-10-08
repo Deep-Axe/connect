@@ -1,3 +1,4 @@
+import { selectSubscribeInfo } from '../../resources/selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import dayjs from 'dayjs';
@@ -514,7 +515,7 @@ class PrimeCheckout extends Component {
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
   device: selectDevice(state),
-  subscribeInfo: state.subscribeInfo,
+  subscribeInfo: selectSubscribeInfo(state),
 });
 
 export default connect(stateToProps)(withStyles(styles)(PrimeCheckout));

@@ -1,5 +1,6 @@
 import { captureOperation } from '../../actions/owned';
 import { selectCurrentRoute, selectFilter, selectRoutes } from '../../selectors';
+import { selectFiles } from '../../resources/selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
@@ -966,7 +967,7 @@ const stateToProps = (state) => ({
   zoom: state.zoom,
   loop: state.loop,
   filter: selectFilter(state),
-  files: state.files,
+  files: selectFiles(state),
   profile: state.profile,
   isBufferingVideo: state.isBufferingVideo,
 });
