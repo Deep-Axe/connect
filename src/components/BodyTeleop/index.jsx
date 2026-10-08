@@ -91,13 +91,11 @@ export const BodyTeleop = ({ dongleId, device, onClose, dispatch }) => {
     connectionRef.current = webrtcConnectionManager.reconnect(dongleId);
   }, [dongleId, resetConnectionTiming]);
 
+  // leaving the page releases the connection (navigation effects decide
+  // whether it stays warm)
   const handleClose = useCallback(() => {
-    // Cars aren't prewarmed, tear down connection
-    if (!device?.rpc?.not_car) {
-      webrtcConnectionManager.disconnect();
-    }
     if (onClose) onClose();
-  }, [device, onClose]);
+  }, [onClose]);
 
   const switchCamera = useCallback((cameraName) => {
     setActiveCamera((prev) => {

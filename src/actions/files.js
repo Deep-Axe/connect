@@ -6,6 +6,7 @@ import { updateDeviceOnline, fetchDeviceNetworkStatus } from '.';
 import * as Types from './types';
 import { deviceOnCellular, getDeviceFromState, deviceVersionAtLeast, asyncSleep } from '../utils';
 import { ownedDispatch } from './owned';
+import { fallbackServices } from '../routing/services';
 
 export const FILE_NAMES = {
   qcameras: ['qcamera.ts'],
@@ -21,7 +22,6 @@ const MAX_RETRIES = 5;
 // connect uploads should be high priority as they are user requested (lower is higher)
 const HIGH_PRIORITY = 0;
 
-let uploadQueueTimeout = null;
 let openRequests = 0;
 
 function pathToFileName(dongleId, path) {
@@ -134,22 +134,25 @@ export function fetchFiles(routeName, nocache = false) {
   };
 }
 
+// The upload queue poll is per store (services.uploads.timer): null when
+// idle, true while a request is in flight, or the pending timeout.
+function stopUploadQueueTimer(services) {
+  const { timer } = services.uploads;
+  if (timer && timer !== true) clearTimeout(timer);
+  services.uploads.timer = null;
+}
+
 export function cancelFetchUploadQueue() {
-  if (uploadQueueTimeout) {
-    if (uploadQueueTimeout !== true) {
-      clearTimeout(uploadQueueTimeout);
-    }
-    uploadQueueTimeout = null;
-  }
+  return (dispatch, getState, services = fallbackServices) => stopUploadQueueTimer(services);
 }
 
 export function fetchUploadQueue(dongleId) {
-  return async (rawDispatch, getState) => {
+  return async (rawDispatch, getState, services = fallbackServices) => {
     const dispatch = ownedDispatch(rawDispatch, getState);
-    if (uploadQueueTimeout) {
+    if (services.uploads.timer) {
       return;
     }
-    uploadQueueTimeout = true;
+    services.uploads.timer = true;
 
     dispatch(fetchDeviceNetworkStatus(dongleId));
 
@@ -159,18 +162,18 @@ export function fetchUploadQueue(dongleId) {
       id: 0,
     };
     const uploadQueue = await athenaCall(dongleId, payload, 'action_files_athena_uploadqueue');
-    if (!uploadQueue || !uploadQueue.result) {
+    if (!uploadQueue || !Array.isArray(uploadQueue.result)) {
       if (uploadQueue && uploadQueue.offline) {
         dispatch(updateDeviceOnline(dongleId, 0));
       }
-      cancelFetchUploadQueue();
+      stopUploadQueueTimer(services);
       return;
     }
     dispatch(updateDeviceOnline(dongleId, Math.floor(Date.now() / 1000)));
 
     // only for the selected device; work on a copy of the previous snapshot
     if (getState().dongleId !== dongleId) {
-      cancelFetchUploadQueue();
+      stopUploadQueueTimer(services);
       return;
     }
     const prevFilesUploading = { ...getState().filesUploading };
@@ -211,10 +214,10 @@ export function fetchUploadQueue(dongleId) {
       uploading: newCurrentUploading,
       files: uploadingFiles,
     });
-    if (uploadQueueTimeout === true && uploadQueue.result.length) {
-      cancelFetchUploadQueue();
-      uploadQueueTimeout = setTimeout(() => {
-        uploadQueueTimeout = null;
+    if (services.uploads.timer === true && uploadQueue.result.length) {
+      stopUploadQueueTimer(services);
+      services.uploads.timer = setTimeout(() => {
+        services.uploads.timer = null;
         // stop polling a device that is no longer selected
         if (getState().dongleId === dongleId) dispatch(fetchUploadQueue(dongleId));
       }, 2000);

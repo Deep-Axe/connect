@@ -82,6 +82,8 @@ export function endSession() {
     services.requests.coords.clear();
     services.requests.driveCoords.clear();
     services.commands.pairToken = null;
+    if (services.uploads.timer && services.uploads.timer !== true) clearTimeout(services.uploads.timer);
+    services.uploads.timer = null;
     Sentry.setUser(null);
     dispatch({ type: ACTION_SESSION_ENDED });
   };

@@ -376,9 +376,18 @@ export class WebRTCConnection extends EventTarget {
   }
 }
 
-// Holds a single pre-warmed WebRTCConnection
+// Holds a single pre-warmed WebRTCConnection, and owns when it is opened,
+// kept and closed. Pages report what happened (enterStream, leaveStream,
+// deviceChanged); the policy lives here:
+//   - entering the stream page reuses a healthy connection to that device
+//     (the early handshake started by App, or a prewarm) instead of opening
+//     a second one
+//   - leaving it keeps a comma body warm for a quick return and closes a
+//     car's connection (cars aren't prewarmed)
+//   - selecting another device closes the old device's connection
 export class WebRTCConnectionManager {
-  constructor() {
+  constructor({ createConnection = (callbacks) => new WebRTCConnection(callbacks) } = {}) {
+    this.createConnection = createConnection;
     this.connection = null;
     this.dongleId = null;
     this.subscriber = null;
@@ -440,7 +449,7 @@ export class WebRTCConnectionManager {
     const guard = (handler) => (...args) => {
       if (this.connection === conn) handler(...args);
     };
-    conn = new WebRTCConnection({
+    conn = this.createConnection({
       onConnectionState: guard((state, reason) => {
         if (state === 'connected' && this.videoWanted) this.connection?.enableVideo(true);
         this.subscriber?.onConnectionState?.(state, reason);
@@ -485,6 +494,30 @@ export class WebRTCConnectionManager {
     this.setJoystickEnabled(false);
   }
 
+  // the stream page for `dongleId` is (about to be) shown
+  enterStream(dongleId) {
+    if (!dongleId) return null;
+    if (!this._healthy(dongleId)) this._open(dongleId, true);
+    this.setVideoEnabled(true);
+    this.setJoystickEnabled(true);
+    return this.connection;
+  }
+
+  // the stream page for `dongleId` was left; `keepWarm` for a comma body
+  leaveStream(dongleId, { keepWarm = false } = {}) {
+    if (this.dongleId !== dongleId) return;
+    this.subscriber = null;
+    this.setVideoEnabled(false);
+    this.setJoystickEnabled(false);
+    if (!keepWarm) this.disconnect();
+  }
+
+  // another device was selected: nothing stays open for the previous one
+  deviceChanged(dongleId) {
+    if (this.dongleId && this.dongleId !== dongleId) this.disconnect();
+  }
+
+  // explicit retry from the stream page: always a fresh connection
   reconnect(dongleId) {
     this._open(dongleId ?? this.dongleId, true);
     this.setVideoEnabled(true);

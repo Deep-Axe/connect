@@ -24,7 +24,10 @@ vi.mock('./utils/webrtc', () => ({
   webrtcConnectionManager: {
     acquire: vi.fn(() => ({ setQuality: vi.fn(), switchCamera: vi.fn() })),
     connection: null,
+    deviceChanged: vi.fn(),
     disconnect: vi.fn(),
+    enterStream: vi.fn(),
+    leaveStream: vi.fn(),
     prewarm: vi.fn(),
     reconnect: vi.fn(),
     release: vi.fn(),

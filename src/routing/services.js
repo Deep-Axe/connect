@@ -60,6 +60,7 @@ export function createRoutingServices() {
       events: new Map(), coords: new Map(), driveCoords: new Map(),
     },
     commands: { pairToken: null },
+    uploads: { timer: null },
   };
 }
 

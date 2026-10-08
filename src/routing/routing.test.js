@@ -42,7 +42,11 @@ vi.mock('../api/backend', () => ({
 vi.mock('../api', () => ({
   athena: {}, billing: { getSubscribeInfo: vi.fn(async () => null), getSubscription: vi.fn(async () => null) },
 }));
-vi.mock('../utils/webrtc', () => ({ webrtcConnectionManager: { disconnect: vi.fn(), reconnect: vi.fn() } }));
+vi.mock('../utils/webrtc', () => ({
+  webrtcConnectionManager: {
+    disconnect: vi.fn(), reconnect: vi.fn(), enterStream: vi.fn(), leaveStream: vi.fn(), deviceChanged: vi.fn(),
+  },
+}));
 vi.mock('../utils/navigation', () => ({ hardNavigate: vi.fn() }));
 vi.mock('localforage', () => {
   const items = new Map();
@@ -491,12 +495,22 @@ describe('PR1 verification findings', () => {
     expect(history.location.search).toBe('');
   });
 
-  it('leaving the stream page releases its connection', async () => {
+  it('the stream page reports enter, leave and device changes to the connection manager', async () => {
+    api.listDevices.mockResolvedValue([
+      { dongle_id: A, is_owner: true, prime: false, rpc: { not_car: true } }, // a comma body
+      { dongle_id: B, is_owner: true, prime: false },
+    ]);
     const { history } = await start(`/${A}/stream`);
-    webrtcConnectionManager.disconnect.mockClear();
+    expect(webrtcConnectionManager.enterStream).toHaveBeenCalledWith(A);
     history.push(`/${A}`);
     await settle();
-    expect(webrtcConnectionManager.disconnect).toHaveBeenCalledTimes(1);
+    expect(webrtcConnectionManager.leaveStream).toHaveBeenCalledWith(A, { keepWarm: true });
+    history.push(`/${B}/stream`);
+    await settle();
+    expect(webrtcConnectionManager.deviceChanged).toHaveBeenCalledWith(B);
+    history.push(`/${B}`);
+    await settle();
+    expect(webrtcConnectionManager.leaveStream).toHaveBeenLastCalledWith(B, { keepWarm: false }); // a car
   });
 
   it('crossing between the demo and real backends reloads the page', async () => {

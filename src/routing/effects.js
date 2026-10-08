@@ -15,6 +15,7 @@ import {
 import { ACTION_PAIR_REQUESTED, ACTION_PRIME_STRIPE_RESULT } from '../actions/types';
 import { bootstrapSession } from '../actions/session';
 import { webrtcConnectionManager } from '../utils/webrtc';
+import { getDeviceFromState } from '../utils';
 import {
   VIEWS, buildUrl, deviceBase, driveBase, isSafeReturnUrl, locationFor, withoutCommands,
 } from './codec';
@@ -136,15 +137,20 @@ export function runNavigationEffects(previous, next, ctx) {
     Sentry.captureException(err, { fingerprint: 'navigation_effect' });
   });
 
-  // the stream connection belongs to the stream page of one device
+  // the stream connection: report enter/leave/device change; the connection
+  // manager decides what stays open
   const previousBase = previous?.base;
   const leftStream = previousBase?.view === VIEWS.STREAM
     && !(base.view === VIEWS.STREAM && base.dongleId === previousBase.dongleId);
   const { dongleId } = ctx.getState();
   const deviceChanged = Boolean(base.dongleId && dongleId === base.dongleId && dongleId !== ctx.previousDongleId);
-  if (leftStream || (deviceChanged && ctx.previousDongleId)) {
-    webrtcConnectionManager.disconnect();
+  if (leftStream) {
+    // a comma body stays warm for a quick return; a car's connection closes
+    const left = getDeviceFromState(ctx.getState(), previousBase.dongleId);
+    webrtcConnectionManager.leaveStream(previousBase.dongleId, { keepWarm: Boolean(left?.rpc?.not_car) });
   }
+  if (deviceChanged) webrtcConnectionManager.deviceChanged(dongleId);
+  if (base.view === VIEWS.STREAM) webrtcConnectionManager.enterStream(base.dongleId);
 
   if (base.view === VIEWS.ROOT) run(() => resolveRoot(next, ctx));
   if (base.view === VIEWS.LEGACY_RANGE) run(() => resolveLegacyRange(next, ctx));

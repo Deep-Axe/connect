@@ -76,7 +76,7 @@ class App extends Component {
       // Reloading: start the webrtc handshake as soon as the API is authed, so it runs in parallel
       // with the lazy explorer chunk load and redux/device init instead of behind them.
       if (base.view === VIEWS.STREAM) {
-        webrtcConnectionManager.reconnect(base.dongleId);
+        webrtcConnectionManager.enterStream(base.dongleId);
       }
 
       fetchTurnCredentials().catch((err) => {
