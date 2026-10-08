@@ -7,7 +7,7 @@ import * as Sentry from '@sentry/react';
 import { api } from '../../api/backend';
 import { updateDevices, analyticsEvent } from '../../actions';
 import { MODALS, modalOf } from '../../routing/codec';
-import { openModal, toDashboard } from '../../routing/navigate';
+import { openModal, openedInteractively, toDashboard } from '../../routing/navigate';
 import { verifyPairToken, pairErrorToMessage } from '../../utils';
 import { AddCircleOutlineIcon } from '../../icons';
 import Colors from '../../colors';
@@ -99,14 +99,14 @@ const styles = (theme) => ({
 });
 
 // The pairing dialog, hosted by ModalHost for /devices/add and
-// ?modal=add-device. The camera starts only after a user action: right away
+// ?modal=add-device. The camera starts only after a user action: on mount
 // when the dialog was opened by a click, otherwise from its own button.
 export class AddDeviceDialog extends Component {
   constructor(props) {
     super(props);
 
     this.state = {
-      cameraRequested: Boolean(props.autoStartCamera),
+      cameraRequested: false,
       hasCamera: null,
       cameraError: null,
       pairLoading: false,
@@ -135,6 +135,11 @@ export class AddDeviceDialog extends Component {
   }
 
   async componentDidMount() {
+    // opened by a click in this session (verified against the history
+    // tracker): the click was the interaction, start the camera
+    if (this.props.dispatch(openedInteractively())) {
+      this.setState({ cameraRequested: true });
+    }
     this.componentDidUpdate({}, {});
   }
 

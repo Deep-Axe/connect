@@ -7,7 +7,7 @@
 import { connect } from 'react-redux';
 
 import { MODALS, VIEWS, modalOf } from '../routing/codec';
-import { closeModal, openModal, openedInteractively } from '../routing/navigate';
+import { closeModal, openModal } from '../routing/navigate';
 import { selectNavLocation } from '../routing/selectors';
 import { deviceIsOnline } from '../utils';
 
@@ -24,7 +24,7 @@ function targetDevice(state, dongleId) {
   return state.devices.find((d) => d.dongle_id === dongleId) || false;
 }
 
-const ModalHost = ({ dispatch, location, device, canManage, route, zoom, routes, interactive }) => {
+const ModalHost = ({ dispatch, location, device, canManage, route, zoom, routes }) => {
   const modal = location?.modal;
   if (!modal) return null;
   const close = () => dispatch(closeModal());
@@ -48,7 +48,7 @@ const ModalHost = ({ dispatch, location, device, canManage, route, zoom, routes,
       );
 
     case MODALS.ADD_DEVICE:
-      return <ConnectedAddDeviceDialog onClose={close} autoStartCamera={interactive} />;
+      return <ConnectedAddDeviceDialog onClose={close} />;
 
     case MODALS.CLIPS: {
       if (device === null) return null;
@@ -94,15 +94,7 @@ const stateToProps = (state) => {
     route: state.currentRoute,
     zoom: state.zoom,
     routes: state.routes,
-    interactive: modal?.kind === MODALS.ADD_DEVICE ? state.router.location.state?.interactive === true : false,
   };
 };
 
-const mergeProps = (stateProps, { dispatch }) => ({
-  ...stateProps,
-  dispatch,
-  // verified against the history tracker, not just the entry's state
-  interactive: stateProps.interactive && dispatch(openedInteractively()),
-});
-
-export default connect(stateToProps, null, mergeProps)(ModalHost);
+export default connect(stateToProps)(ModalHost);
