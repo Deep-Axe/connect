@@ -998,6 +998,18 @@ describe('devices are stored once, by id', () => {
     });
   });
 
+  it('late shared-device responses cannot overwrite a listed device', async () => {
+    const { store } = await start(`/${A}`);
+    store.dispatch(updateDevices([{ dongle_id: A, alias: 'Current name', is_owner: true }]));
+    store.dispatch({
+      type: Types.ACTION_UPDATE_SHARED_DEVICE,
+      dongleId: A,
+      device: { dongle_id: A, alias: 'Old name', is_owner: false },
+    });
+    expect(selectDevice(store.getState()).alias).toBe('Current name');
+    expect(selectDevice(store.getState()).is_owner).toBe(true);
+  });
+
   it('a fetched shared device keeps what was already known about it', async () => {
     const SHARED = 'cccccccccccccccc';
     const { store } = await start(`/${A}`);

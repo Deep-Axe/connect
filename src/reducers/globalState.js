@@ -312,6 +312,7 @@ export default function reducer(_state, action) {
       state = updateRouteEntity(state, action.fullname, (route) => ({ ...route, [action.locationKey]: action.location }));
       break;
     case Types.ACTION_UPDATE_SHARED_DEVICE:
+      if (state.entities.deviceOrder?.includes(action.dongleId)) break;
       // a device the account doesn't list (shared with the user)
       state = updateDeviceEntity(state, action.dongleId, (previous) => ({
         ...previous, ...action.device, fetched_at: action.fetchedAt,
