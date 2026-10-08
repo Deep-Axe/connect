@@ -37,23 +37,24 @@ function pathToFileName(dongleId, path) {
 async function athenaCall(dongleId, payload, sentryFingerprint, isCurrent = () => true, retryCount = 0) {
   try {
     if (!isCurrent()) return null;
-    while (openRequests > MAX_OPEN_REQUESTS) {
+    while (openRequests >= MAX_OPEN_REQUESTS) {
       // eslint-disable-next-line no-await-in-loop
       await asyncSleep(2000);
       if (!isCurrent()) return null;
     }
     openRequests += 1;
-    const resp = await Athena.postJsonRpcPayload(dongleId, payload);
-    openRequests -= 1;
-    return resp;
+    try {
+      return await Athena.postJsonRpcPayload(dongleId, payload);
+    } finally {
+      // Release exactly the slot acquired, including failed network requests.
+      openRequests -= 1;
+    }
   } catch (err) {
-    openRequests -= 1;
     if (!err.resp && retryCount < MAX_RETRIES) {
       await asyncSleep(2000);
       return athenaCall(dongleId, payload, sentryFingerprint, isCurrent, retryCount + 1);
     }
-    if (err.message && (err.message.indexOf('Timed out') === -1
-      || err.message.indexOf('Device not registered') === -1)) {
+    if (err.message?.includes('Timed out') || err.message?.includes('Device not registered')) {
       return { offline: true };
     }
     console.error(err);
