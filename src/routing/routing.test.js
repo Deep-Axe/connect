@@ -10,7 +10,7 @@ const onLocationChanged = (location, action) => ({ type: LOCATION_CHANGE, payloa
 
 import { createInitialState } from '../initialState';
 import { createAppStore } from '../store';
-import { selectDevice, selectDevices } from '../selectors';
+import { selectDevice, selectDevices, selectCurrentRoute, selectRoutes } from '../selectors';
 import localforage from 'localforage';
 import { hardNavigate } from '../utils/navigation';
 import { webrtcConnectionManager } from '../utils/webrtc';
@@ -170,7 +170,7 @@ describe('one URL → state path', () => {
       ...route(dongleId, LOG), segment_end_times: [61123], end_time_utc_millis: 61123,
     }]);
     const { history, store } = await start(`/${A}/${LOG}`);
-    expect(store.getState().currentRoute.duration).toBe(60123);
+    expect(selectCurrentRoute(store.getState()).duration).toBe(60123);
     store.dispatch(toDriveRange(A, LOG, 30000, 60123));
     await settle();
     expect(history.location.pathname).toBe(`/${A}/${LOG}/30/61`);
@@ -185,7 +185,7 @@ describe('one URL → state path', () => {
   it('a selection after the end of the drive has no effective range and is flagged', async () => {
     const { history, store } = await start(`/${A}/${LOG}/70/80`);
     expect(history.location.pathname).toBe(`/${A}/${LOG}/70/80`);
-    expect(store.getState().currentRoute.duration).toBe(60000);
+    expect(selectCurrentRoute(store.getState()).duration).toBe(60000);
     expect(store.getState().zoom).toBeNull();
     expect(store.getState().loop).toBeNull();
     expect(selectSelectionOutOfRange(store.getState())).toBe(true);
@@ -319,12 +319,12 @@ describe('request identity', () => {
     pending[`${A}|${LOG}`]();
     await settle();
     // drive A's routes must not be applied while drive B is selected
-    expect(store.getState().routes).toBeNull();
-    expect(store.getState().currentRoute).toBeNull();
+    expect(selectRoutes(store.getState())).toBeNull();
+    expect(selectCurrentRoute(store.getState())).toBeNull();
     pending[`${A}|${OTHER_LOG}`]();
     await settle();
     await settle();
-    expect(store.getState().currentRoute?.log_id).toBe(OTHER_LOG);
+    expect(selectCurrentRoute(store.getState())?.log_id).toBe(OTHER_LOG);
   });
 });
 
@@ -409,16 +409,17 @@ describe('PR1 verification findings', () => {
 
   it('switching from a loaded drive to another drive fetches it, keeping the list', async () => {
     const { history, store } = await start(`/${A}`);
-    const list = store.getState().routes;
+    const list = selectRoutes(store.getState());
     history.push(`/${A}/${LOG}`);
     await settle();
-    expect(store.getState().currentRoute?.log_id).toBe(LOG);
+    expect(selectCurrentRoute(store.getState())?.log_id).toBe(LOG);
     api.getRoutesSegments.mockClear();
     history.push(`/${A}/${OTHER_LOG}`);
     await settle(); await settle();
     expect(api.getRoutesSegments).toHaveBeenCalledWith(A, undefined, undefined, undefined, `${A}|${OTHER_LOG}`);
-    expect(store.getState().currentRoute?.log_id).toBe(OTHER_LOG);
-    expect(store.getState().routes.map((r) => r.log_id)).toEqual([...list.map((r) => r.log_id), OTHER_LOG]);
+    expect(selectCurrentRoute(store.getState())?.log_id).toBe(OTHER_LOG);
+    expect(selectRoutes(store.getState())).toBe(list);
+    expect(store.getState().entities.routes[`${A}|${OTHER_LOG}`].log_id).toBe(OTHER_LOG);
   });
 
   it('a drive that does not exist is reported once, without retrying', async () => {
@@ -433,37 +434,30 @@ describe('PR1 verification findings', () => {
     expect(api.getRoutesSegments).toHaveBeenCalledTimes(calls);
   });
 
-  it('an older response for the same view cannot overwrite a newer one (A → B → A)', async () => {
+  it('A → B → A reuses the identical list request still in flight', async () => {
     const answers = [];
     api.getRoutesSegments.mockImplementation((dongleId) => new Promise((resolve) => answers.push({ dongleId, resolve })));
     const { history, store } = await start(`/${A}`);
-    history.push(`/${B}`);
-    await settle();
-    history.push(`/${A}`);
-    await settle();
-    const [a1, , a2] = answers;
-    a2.resolve([route(A, OTHER_LOG)]);
-    await settle();
-    a1.resolve([route(A, LOG)]);
-    await settle();
-    expect(store.getState().routes.map((r) => r.log_id)).toEqual([OTHER_LOG]);
+    history.push(`/${B}`); await settle();
+    history.push(`/${A}`); await settle();
+    expect(answers).toHaveLength(2);
+    answers[0].resolve([route(A, LOG)]); await settle();
+    expect(selectRoutes(store.getState()).map((r) => r.log_id)).toEqual([LOG]);
+    answers[1].resolve([route(B, OTHER_LOG)]); await settle();
+    expect(selectRoutes(store.getState()).map((r) => r.log_id)).toEqual([LOG]);
   });
 
-  it('an old empty response cannot send a newer visit to login', async () => {
+  it('a reused old detail request cannot redirect a newer visit to login', async () => {
     api.authenticated = false;
     const answers = [];
     api.getRoutesSegments.mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
-    const { history } = await start(`/${A}/${LOG}`);
-    history.push(`/${B}/${LOG}`);
-    await settle();
-    history.push(`/${A}/${LOG}`);
-    await settle();
-    answers[0]([]); // the first visit's empty answer arrives while the second is pending
-    await settle();
+    const { history, store } = await start(`/${A}/${LOG}`);
+    history.push(`/${B}/${LOG}`); await settle();
+    history.push(`/${A}/${LOG}`); await settle();
+    expect(answers).toHaveLength(2);
+    answers[0]([]); await settle();
     expect(hardNavigate).not.toHaveBeenCalled();
-    answers[2]([route(A, LOG)]);
-    await settle();
-    expect(hardNavigate).not.toHaveBeenCalled();
+    expect(selectSelectedRouteMissing(store.getState())).toBe(true);
   });
 
   it('ending the session clears private state and ignores late results from it', async () => {
@@ -623,15 +617,15 @@ describe('second verification findings', () => {
     } finally { now.mockRestore(); }
   });
 
-  it('newer A request remains authoritative when older A resolves first', async () => {
+  it('a forced same-query refresh wins even when the old response arrives first', async () => {
     const answers = [];
     api.getRoutesSegments.mockImplementation((dongleId) => new Promise((resolve) => answers.push({ dongleId, resolve })));
-    const { history, store } = await start(`/${A}`);
-    history.push(`/${B}`); await settle();
-    history.push(`/${A}`); await settle();
+    const { store } = await start(`/${A}`);
+    store.dispatch(checkRoutesData({ force: true })); await settle();
     answers[0].resolve([route(A, LOG)]); await settle();
-    answers[2].resolve([route(A, OTHER_LOG)]); await settle(); await settle();
-    expect(store.getState().routes.map((r) => r.log_id)).toEqual([OTHER_LOG]);
+    expect(selectRoutes(store.getState())).toBeNull();
+    answers[1].resolve([route(A, OTHER_LOG)]); await settle();
+    expect(selectRoutes(store.getState()).map((r) => r.log_id)).toEqual([OTHER_LOG]);
   });
 });
 
@@ -641,7 +635,8 @@ describe('task dialogs', () => {
 
   it('opening settings for another device over a drive keeps the drive untouched', async () => {
     const { history, store } = await start(`/${A}/${LOG}/10/20`);
-    const { zoom, loop, currentRoute, nav } = store.getState();
+    const { zoom, loop, nav } = store.getState();
+    const currentRoute = selectCurrentRoute(store.getState());
     const calls = api.getRoutesSegments.mock.calls.length;
     store.dispatch(openModal(settings(B)));
     await settle();
@@ -649,7 +644,7 @@ describe('task dialogs', () => {
     expect(store.getState().dongleId).toBe(A);
     expect(store.getState().zoom).toBe(zoom);
     expect(store.getState().loop).toBe(loop);
-    expect(store.getState().currentRoute).toBe(currentRoute);
+    expect(selectCurrentRoute(store.getState())).toBe(currentRoute);
     expect(store.getState().nav.generation).toBe(nav.generation);
     expect(api.getRoutesSegments).toHaveBeenCalledTimes(calls);
 

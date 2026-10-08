@@ -1,3 +1,4 @@
+import { selectFilter } from '../../selectors';
 import { useState } from 'react';
 import { connect } from 'react-redux';
 
@@ -111,7 +112,7 @@ const TimeSelect = ({ classes, onClose, filter, dispatch }) => {
 };
 
 const stateToProps = (state) => ({
-  filter: state.filter,
+  filter: selectFilter(state),
 });
 
 export default connect(stateToProps)(withStyles(styles)(TimeSelect));

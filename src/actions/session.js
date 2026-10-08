@@ -99,8 +99,8 @@ export function endSession() {
     request.configure(null);
     athena.configure(null);
     billing.configure(null);
-    services.requests.routes = null;
-    services.requests.routesLatest.clear();
+    services.requests.routeQueries.clear();
+    services.requests.routeLatest.clear();
     services.requests.events.clear();
     services.requests.coords.clear();
     services.requests.driveCoords.clear();

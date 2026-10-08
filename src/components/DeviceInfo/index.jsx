@@ -1,3 +1,4 @@
+import { selectRoutes } from '../../selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
@@ -506,7 +507,7 @@ class DeviceInfo extends Component {
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
   device: selectDevice(state),
-  routes: state.routes,
+  routes: selectRoutes(state),
 });
 
 export default connect(stateToProps)(withStyles(styles)(DeviceInfo));

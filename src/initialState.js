@@ -1,4 +1,3 @@
-import { getDefaultFilter } from './utils/filter';
 
 // Environment-independent: navigation state is filled in by the routing
 // middleware from the router's first location, never from window.location.
@@ -16,28 +15,25 @@ export function createInitialState() {
     offset: null,           // in miliseconds, relative to state.zoom.start
     startTime: Date.now(),  // millisecond timestamp in which play began
 
-    routes: null,
-    routesMeta: {
-      dongleId: null,
-      start: null,
-      end: null,
-    },
-    currentRoute: null,
-    lastRoutes: null,
-
     profile: null,
 
     // data, stored once by key; pages derive what they show (src/selectors.js)
     entities: {
       devices: {},          // by dongle id: the account's and shared devices
       deviceOrder: null,    // the account's devices, sorted; null until loaded
+      routes: {},           // by fullname, with events/locations/coords
     },
+    queries: {
+      routeLists: {},       // by `${dongleId}|${start}|${end}|${limit}`
+      routeDetails: {},     // by fullname: 'loaded' | 'missing'
+    },
+    runtime: { routes: {} }, // bounded remembered playback, by fullname
+    lists: {},              // per device: { filter, limit }
 
     subscription: null,
     subscribeInfo: null,
     primeStripeResult: null,
     pairRequests: 0,      // bumped when a pair token arrives by URL
-    missingRoute: null,   // 'dongle|log' a detail request found no route for
 
     files: null,
     filesUploading: {},   // the selected device's upload queue
@@ -47,10 +43,8 @@ export function createInitialState() {
       fetchedAt: null,
     },
 
-    filter: getDefaultFilter(),
     zoom: null,
     loop: null,
-    limit: 0,
   };
 }
 

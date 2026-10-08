@@ -1,4 +1,5 @@
 import { captureOperation } from '../../actions/owned';
+import { selectCurrentRoute, selectFilter, selectRoutes } from '../../selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
@@ -370,7 +371,7 @@ export class Media extends Component {
     }));
 
     const operation = this.props.dispatch(captureOperation({
-      resource: (state) => state.currentRoute?.fullname === currentRoute.fullname,
+      resource: (state) => selectCurrentRoute(state)?.fullname === currentRoute.fullname,
     }));
     const routeNoDongleId = currentRoute.fullname.split('|')[1];
     const fileName = `${dongleId}|${routeNoDongleId}--${getSegmentNumber(currentRoute)}/${type}`;
@@ -410,7 +411,7 @@ export class Media extends Component {
     }
 
     const operation = this.props.dispatch(captureOperation({
-      resource: (state) => state.currentRoute?.fullname === currentRoute.fullname,
+      resource: (state) => selectCurrentRoute(state)?.fullname === currentRoute.fullname,
     }));
     this.props.dispatch(analyticsEvent('files_upload_all', {
       types: types.length === 1 && types[0] === 'logs' ? 'logs' : 'all',
@@ -511,7 +512,7 @@ export class Media extends Component {
     const attempt = (this.routeAttempts[kind] ?? 0) + 1;
     this.routeAttempts[kind] = attempt;
     const lease = this.props.dispatch(captureOperation({
-      resource: (state) => state.currentRoute?.fullname === fullname,
+      resource: (state) => selectCurrentRoute(state)?.fullname === fullname,
     }));
     return {
       fullname, dongleId: this.props.dongleId, dispatch: lease.dispatch,
@@ -960,11 +961,11 @@ export class Media extends Component {
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
   device: selectDevice(state),
-  routes: state.routes,
-  currentRoute: state.currentRoute,
+  routes: selectRoutes(state),
+  currentRoute: selectCurrentRoute(state),
   zoom: state.zoom,
   loop: state.loop,
-  filter: state.filter,
+  filter: selectFilter(state),
   files: state.files,
   profile: state.profile,
   isBufferingVideo: state.isBufferingVideo,

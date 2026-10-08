@@ -1,3 +1,4 @@
+import { selectCurrentRoute } from '../../selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import dayjs from 'dayjs';
@@ -311,7 +312,7 @@ class TimeDisplay extends Component {
 }
 
 const stateToProps = (state) => ({
-  currentRoute: state.currentRoute,
+  currentRoute: selectCurrentRoute(state),
   zoom: state.zoom,
   desiredPlaySpeed: state.desiredPlaySpeed,
 });

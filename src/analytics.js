@@ -1,3 +1,4 @@
+import { selectCurrentRoute } from './selectors';
 import * as Sentry from '@sentry/react';
 
 import MyCommaAuth from '@commaai/my-comma-auth';
@@ -212,8 +213,8 @@ function logAction(action, prevState, state) {
       return;
 
     case Types.ACTION_LOOP:
-      if (state.currentRoute && state.zoom && state.loop?.duration !== 0) {
-        percent = state.loop && state.currentRoute ? state.loop.duration / state.currentRoute.duration : undefined;
+      if (selectCurrentRoute(state) && state.zoom && state.loop?.duration !== 0) {
+        percent = state.loop && selectCurrentRoute(state) ? state.loop.duration / selectCurrentRoute(state).duration : undefined;
         gtag('event', 'video_loop', {
           ...params,
           loop_duration: state.loop?.duration,

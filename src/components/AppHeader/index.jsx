@@ -1,3 +1,4 @@
+import { selectFilter } from '../../selectors';
 import React, { useCallback, useState } from 'react';
 import { connect } from 'react-redux';
 
@@ -186,7 +187,7 @@ const AppHeader = ({
 
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
-  filter: state.filter,
+  filter: selectFilter(state),
   profile: state.profile,
   referralsOpen: selectIsReferralsView(state),
 });

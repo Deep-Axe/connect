@@ -3,18 +3,19 @@ import { athena as Athena, billing as Billing } from '../api';
 import { api } from '../api/backend';
 
 import * as Types from './types';
-import { hasRoutesData } from '../timeline/segments';
 import { getDeviceFromState, deviceVersionAtLeast, deviceIsOnline } from '../utils';
 import { hardNavigate } from '../utils/navigation';
 import { urlOfRouterLocation } from '../routing/codec';
-import { selectSelectedRouteId } from '../routing/selectors';
 import { fallbackServices } from '../routing/services';
 import { ownedDispatch } from './owned';
-import { selectDeviceById } from '../selectors';
+import {
+  LIMIT_INCREMENT, routeListKey, selectDeviceById, selectLimit, selectListPrefs, selectRouteDetail, selectRoutes,
+  selectedRouteFullname,
+} from '../selectors';
 
-const LIMIT_INCREMENT = 5
 
-function normalizeRoute(r) {
+function normalizeRoute(payload) {
+  const r = { ...payload };
   let startTime = r.segment_start_times[0];
   let endTime = r.segment_end_times[r.segment_end_times.length - 1];
 
@@ -43,142 +44,103 @@ function normalizeRoute(r) {
   };
 }
 
-// What the active routes view still needs: nothing, the selected drive's
-// detail (the list is loaded but doesn't contain it), or the list itself
-// (fetched by route when a drive is selected, as on a cold drive link).
-function routesNeed(state) {
-  const selectedRouteId = selectSelectedRouteId(state);
-  const selectedKnown = !selectedRouteId
-    || state.routes?.some((route) => route.log_id === selectedRouteId)
-    || state.missingRoute === `${state.dongleId}|${selectedRouteId}`;
-  if (hasRoutesData(state)) return selectedKnown ? null : 'detail';
-  return 'list';
+// Route data is cached per query key (see src/selectors.js). A query is
+// loaded when missing or stale, an answer is written to its own key only,
+// and identical keys share one request.
+export const ROUTES_FRESH_MS = 5 * 60 * 1000;
+
+const isFresh = (entry, now) => Boolean(entry && now - entry.fetchedAt < ROUTES_FRESH_MS);
+
+function runRouteQuery(services, key, force, request, onAnswer) {
+  const pending = services.requests.routeQueries.get(key);
+  if (pending && !force) return pending;
+  services.requests.routeSeq += 1;
+  const requestId = services.requests.routeSeq;
+  services.requests.routeLatest.set(key, requestId);
+  const promise = Promise.resolve().then(request).then((answer) => {
+    if (services.requests.routeLatest.get(key) === requestId) return onAnswer(answer, requestId);
+    return undefined;
+  }).catch((err) => {
+    console.error('Failure fetching routes metadata', err);
+    Sentry.captureException(err, { fingerprint: 'timeline_fetch_routes' });
+  }).finally(() => {
+    if (services.requests.routeQueries.get(key) === promise) services.requests.routeQueries.delete(key);
+  });
+  services.requests.routeQueries.set(key, promise);
+  return promise;
 }
 
-// The view a routes request serves: everything that determines its result.
-function routesViewKey(state) {
-  return JSON.stringify([
-    state.sessionEpoch, state.dongleId, selectSelectedRouteId(state), state.filter.start, state.filter.end, state.limit,
-  ]);
-}
-
-// A request's identity: its view and what that view still needed.
-function routesRequestKey(state) {
-  return JSON.stringify([routesViewKey(state), routesNeed(state)]);
-}
-
-export function checkRoutesData() {
-  return (dispatch, getState, services = fallbackServices) => {
-    let state = getState();
-    if (!state.dongleId) {
-      return;
-    }
-    const need = routesNeed(state);
-    if (!need) {
-      // already has metadata, don't bother
-      return;
-    }
-    const key = routesRequestKey(state);
-    const pending = services.requests.routes;
-    if (pending && pending.key === key) {
-      // the same request is already in flight
-      return pending.promise;
-    }
-    console.debug('We need to update the segment metadata...');
-    const { dongleId, limit: fetchLimit, sessionEpoch: epoch } = state;
-    const fetchRange = state.filter;
-    const selectedRouteId = selectSelectedRouteId(state);
-    const generation = services.navigation.generation;
-
-    // if requested segment range not in loaded routes, fetch it explicitly
-    const req = selectedRouteId
-      ? api.routes.getRoutesSegments(dongleId, undefined, undefined, undefined, `${dongleId}|${selectedRouteId}`)
-      : api.routes.getRoutesSegments(dongleId, fetchRange.start, fetchRange.end, fetchLimit);
-    // only the latest request issued for a view may answer for it, whichever
-    // order responses arrive in (A1 → B → A2: A1 is superseded by A2)
-    services.requests.routesSeq += 1;
-    const viewKey = routesViewKey(state);
-    const request = { key, seq: services.requests.routesSeq };
-    services.requests.routesLatest.set(viewKey, request.seq);
-    services.requests.routes = request;
-    const release = () => {
-      if (services.requests.routes === request) services.requests.routes = null;
-    };
-
-    request.promise = req.then((routesData) => {
-      state = getState();
-      if (services.requests.routesLatest.get(viewKey) !== request.seq) {
-        release();
-        return;
-      }
-      if (routesRequestKey(state) !== key) {
-        // obsolete: the device, drive, filter, limit or session changed meanwhile
-        release();
-        dispatch(checkRoutesData());
-        return;
-      }
-      if (routesData && routesData.length === 0 && !api.auth.isAuthenticated()) {
-        release();
-        // redirect to login, returning to the complete current location; only
-        // for the navigation that asked
-        if (services.navigation.generation === generation) {
-          hardNavigate(`/?${new URLSearchParams({ r: urlOfRouterLocation(state.router.location) })}`);
-        }
-        return;
-      }
-
-      const routes = (routesData || []).map(normalizeRoute).sort((a, b) => b.create_time - a.create_time);
-
-      if (need === 'detail') {
-        dispatch(routes.length
-          ? { type: Types.ACTION_ROUTE_DETAIL, dongleId, route: routes[0], epoch }
-          : { type: Types.ACTION_ROUTE_DETAIL_MISSING, dongleId, logId: selectedRouteId, epoch });
-        return routes;
-      }
-
-      dispatch({
-        type: Types.ACTION_ROUTES_METADATA,
-        dongleId,
-        start: fetchRange.start,
-        end: fetchRange.end,
-        routes,
-        epoch,
-      });
-      if (selectedRouteId && !routes.some((route) => route.log_id === selectedRouteId)) {
-        dispatch({ type: Types.ACTION_ROUTE_DETAIL_MISSING, dongleId, logId: selectedRouteId, epoch });
-      }
-
-      return routes
-    }).catch((err) => {
-      console.error('Failure fetching routes metadata', err);
-      Sentry.captureException(err, { fingerprint: 'timeline_fetch_routes' });
-    }).finally(release);
-
-    return request.promise;
+// The selected device's drive list for its current filter and limit.
+export function checkRoutesData({ force = false } = {}) {
+  return (rawDispatch, getState, services = fallbackServices) => {
+    const dispatch = ownedDispatch(rawDispatch, getState);
+    const state = getState();
+    const { dongleId } = state;
+    const prefs = selectListPrefs(state);
+    if (!dongleId || !prefs) return undefined;
+    const { filter, limit } = prefs;
+    const key = routeListKey(dongleId, filter, limit);
+    if (!force && isFresh(state.queries.routeLists[key], Date.now())) return undefined;
+    return runRouteQuery(
+      services,
+      `list|${state.sessionEpoch}|${key}`, force,
+      () => api.routes.getRoutesSegments(dongleId, filter.start, filter.end, limit),
+      (data, requestId) => {
+        const routes = (data || []).map(normalizeRoute).sort((a, b) => b.create_time - a.create_time);
+        dispatch({
+          type: Types.ACTION_ROUTE_LIST_LOADED, key, dongleId, start: filter.start, end: filter.end, limit, routes, requestId, fetchedAt: Date.now(),
+        });
+      },
+    );
   };
 }
 
+// The selected drive's own metadata, when no list has brought it.
+export function checkRouteDetail({ force = false } = {}) {
+  return (rawDispatch, getState, services = fallbackServices) => {
+    const dispatch = ownedDispatch(rawDispatch, getState);
+    const state = getState();
+    const fullname = selectedRouteFullname(state);
+    if (!fullname) return undefined;
+    const detail = selectRouteDetail(state, fullname);
+    const known = state.entities.routes[fullname];
+    if (!force && isFresh(detail ?? (known && { fetchedAt: known.metadataFetchedAt }), Date.now())) return undefined;
+    const generation = services.navigation.generation;
+    const epoch = state.sessionEpoch;
+    const [dongleId] = fullname.split('|');
+    return runRouteQuery(
+      services,
+      `detail|${state.sessionEpoch}|${fullname}`, force,
+      () => api.routes.getRoutesSegments(dongleId, undefined, undefined, undefined, fullname),
+      (data, requestId) => {
+        const route = data?.length ? normalizeRoute(data[0]) : null;
+        const current = getState();
+        if (!route && !api.auth.isAuthenticated()) {
+          // signed out and not public: log in, returning to this drive, if it
+          // is still the one on screen
+          if (current.sessionEpoch === epoch && services.navigation.generation === generation && selectedRouteFullname(current) === fullname) {
+            hardNavigate(`/?${new URLSearchParams({ r: urlOfRouterLocation(current.router.location) })}`);
+          }
+        }
+        dispatch({ type: Types.ACTION_ROUTE_DETAIL_LOADED, fullname, route, requestId, fetchedAt: Date.now() });
+      },
+    );
+  };
+}
+
+// "Load more": the next page is a new list key.
 export function checkLastRoutesData() {
   return (dispatch, getState) => {
-    const { limit, routes, filter } = getState();
-
-    // if current routes are fewer than limit, that means the last fetch already fetched all the routes
-    if (routes && routes.length < limit) {
-      return
+    const state = getState();
+    const routes = selectRoutes(state);
+    const limit = selectLimit(state);
+    if (!routes) {
+      dispatch(checkRoutesData());
+      return;
     }
-
-    dispatch({
-      type: Types.ACTION_UPDATE_ROUTE_LIMIT,
-      limit: limit + LIMIT_INCREMENT,
-    })
-
-    // invalidate cached routes while keeping the current filter range
-    dispatch({
-      type: Types.ACTION_SELECT_TIME_FILTER,
-      start: filter.start,
-      end: filter.end,
-    });
-
+    // fewer drives than asked for: that was all of them
+    if (routes.length < limit) return;
+    dispatch({ type: Types.ACTION_UPDATE_ROUTE_LIMIT, dongleId: state.dongleId, limit: limit + LIMIT_INCREMENT });
     dispatch(checkRoutesData());
   };
 }
@@ -377,17 +339,7 @@ export function updateDevice(device) {
 
 export function selectTimeFilter(start, end) {
   return (dispatch, getState) => {
-    dispatch({
-      type: Types.ACTION_SELECT_TIME_FILTER,
-      start,
-      end,
-    });
-
-    dispatch({
-      type: Types.ACTION_UPDATE_ROUTE_LIMIT,
-      limit: LIMIT_INCREMENT,
-    })
-
+    dispatch({ type: Types.ACTION_SELECT_TIME_FILTER, dongleId: getState().dongleId, start, end });
     dispatch(checkRoutesData());
   };
 }

@@ -1,3 +1,4 @@
+import { selectCurrentRoute } from '../../selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import dayjs from 'dayjs';
@@ -103,7 +104,7 @@ class DriveView extends Component {
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
   zoom: state.zoom,
-  currentRoute: state.currentRoute,
+  currentRoute: selectCurrentRoute(state),
   selectionOutOfRange: selectSelectionOutOfRange(state),
   routeMissing: selectSelectedRouteMissing(state),
 });

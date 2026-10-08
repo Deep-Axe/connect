@@ -11,7 +11,7 @@ import { storePairToken } from './pairToken';
 import { api } from '../api/backend';
 import { selectDevices } from '../selectors';
 import {
-  checkLastRoutesData, checkRoutesData, fetchDeviceOnline, fetchSharedDevice, primeFetchSubscription,
+  checkRouteDetail, checkRoutesData, fetchDeviceOnline, fetchSharedDevice, primeFetchSubscription,
 } from '../actions';
 import { ACTION_PAIR_REQUESTED, ACTION_PRIME_STRIPE_RESULT } from '../actions/types';
 import { bootstrapSession } from '../actions/session';
@@ -146,11 +146,6 @@ async function selectedDeviceChanged(dongleId, ctx) {
   }
 }
 
-function ensureRoutes(ctx) {
-  // limit 0 means nothing has been requested for this device yet
-  ctx.dispatch(ctx.getState().limit === 0 ? checkLastRoutesData() : checkRoutesData());
-}
-
 // pages that show the device's drives
 const ROUTE_VIEWS = [VIEWS.DASHBOARD, VIEWS.DRIVE];
 
@@ -186,7 +181,7 @@ export async function runNavigationEffects(previous, next, ctx) {
 
   if (deviceChanged) run(() => selectedDeviceChanged(dongleId, ctx));
   if (base.dongleId && dongleId === base.dongleId && ROUTE_VIEWS.includes(base.view)) {
-    ensureRoutes(ctx);
+    ctx.dispatch(base.view === VIEWS.DRIVE ? checkRouteDetail() : checkRoutesData());
   }
 }
 

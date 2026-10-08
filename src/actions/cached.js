@@ -284,7 +284,7 @@ async function assetJson(resp) {
 }
 
 function routeLoaded(state, route, field) {
-  const loaded = state.routes?.find((r) => r.fullname === route.fullname);
+  const loaded = state.entities?.routes?.[route.fullname];
   return Boolean(loaded?.[field]);
 }
 
@@ -292,7 +292,7 @@ export function fetchEvents(route) {
   return async (rawDispatch, getState, services = fallbackServices) => {
     const dispatch = ownedDispatch(rawDispatch, getState);
     const state = getState();
-    if (!state.routes || routeLoaded(state, route, 'events')) {
+    if (!state.entities?.routes?.[route.fullname] || routeLoaded(state, route, 'events')) {
       return;
     }
 
@@ -331,7 +331,7 @@ export function fetchCoord(route, coord, locationKey) {
   return async (rawDispatch, getState, services = fallbackServices) => {
     const dispatch = ownedDispatch(rawDispatch, getState);
     const state = getState();
-    if (!state.routes || (!coord[0] && !coord[1]) || routeLoaded(state, route, locationKey)) {
+    if (!state.entities?.routes?.[route.fullname] || (!coord[0] && !coord[1]) || routeLoaded(state, route, locationKey)) {
       return;
     }
 
@@ -368,7 +368,7 @@ export function fetchDriveCoords(route) {
   return async (rawDispatch, getState, services = fallbackServices) => {
     const dispatch = ownedDispatch(rawDispatch, getState);
     const state = getState();
-    if (!state.routes || routeLoaded(state, route, 'driveCoords')) {
+    if (!state.entities?.routes?.[route.fullname] || routeLoaded(state, route, 'driveCoords')) {
       return;
     }
 

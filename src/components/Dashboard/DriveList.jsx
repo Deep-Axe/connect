@@ -1,3 +1,4 @@
+import { selectRoutes, selectRoutesForDisplay } from '../../selectors';
 import React, { useState, useEffect, useCallback } from 'react';
 import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
@@ -78,7 +79,7 @@ const DriveList = (props) => {
   }
 
   // we clean up routes during data fetching, fallback to using lastRoutes to display current data
-  const displayRoutes = routes || lastRoutes;
+  const displayRoutes = (routes || lastRoutes)?.slice();
   if (displayRoutes && displayRoutes.length){
     // sort routes by start_time_utc_millis with the latest drive first
     // Workaround upstream sorting issue for now
@@ -159,8 +160,8 @@ const DriveList = (props) => {
 
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
-  routes: state.routes,
-  lastRoutes: state.lastRoutes,
+  routes: selectRoutes(state),
+  lastRoutes: selectRoutesForDisplay(state),
   device: selectDevice(state),
 });
 

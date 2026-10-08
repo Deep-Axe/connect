@@ -1,3 +1,4 @@
+import { selectCurrentRoute, selectSelectedRouteMissing as selectedRouteMissing } from '../selectors';
 import { VIEWS } from './codec';
 
 export const selectNavLocation = (state) => state.nav?.location ?? null;
@@ -13,13 +14,10 @@ export const selectIsStreamView = (state) => selectView(state) === VIEWS.STREAM;
 // The URL names a range that starts after the drive ends.
 export const selectSelectionOutOfRange = (state) => {
   const drive = selectNavLocation(state)?.base.drive;
-  return Boolean(drive && drive.start != null && state.currentRoute && drive.start >= state.currentRoute.duration);
+  return Boolean(drive && drive.start != null && selectCurrentRoute(state) && drive.start >= selectCurrentRoute(state).duration);
 };
 
 // The selected drive was looked up and does not exist.
-export const selectSelectedRouteMissing = (state) => {
-  const base = selectNavLocation(state)?.base;
-  return Boolean(base?.drive && state.missingRoute === `${base.dongleId}|${base.drive.logId}`);
-};
+export const selectSelectedRouteMissing = selectedRouteMissing;
 
 export const selectIsReferralsView = (state) => selectView(state) === VIEWS.REFERRALS;

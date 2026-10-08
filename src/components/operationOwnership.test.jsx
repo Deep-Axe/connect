@@ -28,7 +28,7 @@ vi.mock('./CommacareBadge', () => ({default:()=>null,COMMACARE_URL:''}));
 const A='aaaaaaaaaaaaaaaa';
 const route={fullname:`${A}|2026-08-06--12-00-00`,segment_numbers:[0],segment_start_times:[0],segment_end_times:[10000],start_time_utc_millis:0};
 function harness() {
- let state={sessionEpoch:0,dongleId:A,currentRoute:route};
+ let state={sessionEpoch:0,dongleId:A,entities:{routes:{[route.fullname]:route}},nav:{location:{base:{view:"drive",dongleId:A,drive:{logId:route.fullname.split("|")[1]}}}}};
  const services=createRoutingServices();
  const actions=[];
  const dispatch=action=>typeof action==='function'?action(dispatch,()=>state,services):(actions.push(action),action);

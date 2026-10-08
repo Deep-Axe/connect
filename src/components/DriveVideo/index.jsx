@@ -1,3 +1,4 @@
+import { selectCurrentRoute, selectRoutes } from '../../selectors';
 /* eslint-disable camelcase */
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
@@ -358,8 +359,8 @@ const stateToProps = (state) => ({
   offset: state.offset,
   startTime: state.startTime,
   isBufferingVideo: state.isBufferingVideo,
-  routes: state.routes,
-  currentRoute: state.currentRoute,
+  routes: selectRoutes(state),
+  currentRoute: selectCurrentRoute(state),
 });
 
 export default connect(stateToProps)(DriveVideo);

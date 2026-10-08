@@ -1,4 +1,5 @@
 import { captureOperation } from '../actions/owned';
+import { selectCurrentRoute } from '../selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import { readPairToken, removePairToken } from '../routing/pairToken';
@@ -306,7 +307,7 @@ const stateToProps = (state) => ({
   zoom: state.zoom,
   dongleId: state.dongleId,
   devices: selectDevices(state),
-  currentRoute: state.currentRoute,
+  currentRoute: selectCurrentRoute(state),
   view: selectView(state),
   navLocation: selectNavLocation(state),
   pairRequests: state.pairRequests,

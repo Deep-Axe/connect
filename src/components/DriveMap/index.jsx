@@ -1,3 +1,4 @@
+import { selectCurrentRoute } from '../../selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 
@@ -307,7 +308,7 @@ class DriveMap extends Component {
 
 const stateToProps = (state) => ({
   offset: state.offset,
-  currentRoute: state.currentRoute,
+  currentRoute: selectCurrentRoute(state),
   startTime: state.startTime,
 });
 

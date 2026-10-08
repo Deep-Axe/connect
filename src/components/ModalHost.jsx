@@ -1,3 +1,4 @@
+import { selectCurrentRoute, selectRoutes } from '../selectors';
 // Renders the task dialog named by the URL over whatever page is showing.
 // Lives in the explorer shell, so a dialog does not depend on the drawer or
 // any page being mounted, and the page underneath keeps its state.
@@ -91,9 +92,9 @@ const stateToProps = (state) => {
     location,
     device,
     canManage: Boolean(device && (device.is_owner || state.profile?.superuser)),
-    route: state.currentRoute,
+    route: selectCurrentRoute(state),
     zoom: state.zoom,
-    routes: state.routes,
+    routes: selectRoutes(state),
   };
 };
 
