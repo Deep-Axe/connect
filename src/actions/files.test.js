@@ -26,6 +26,21 @@ const queueItem = (dongleId, id) => ({ id, url: `https://x/${dongleId}/${LOG}/0/
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('upload queue poll', () => {
+  it('unsupported upload files do not reject the poll', async () => {
+    athena.postJsonRpcPayload.mockResolvedValue({ result: [{
+      id: 'boot', url: `https://x/${A}/2026-08-06--12-00-00/0/bootlog.zst`,
+      progress: 0.2, current: true,
+    }] });
+    const h = harness();
+    try {
+      await expect(h.dispatch(fetchUploadQueue(A))).resolves.toBeUndefined();
+      expect(h.getState().uploadQueues[A].uploading).toEqual({});
+      expect(h.services.uploads.targets.get(A).inFlight).toBe(false);
+    } finally {
+      clearTimeout(h.services.uploads.targets.get(A).timer);
+    }
+  });
+
   it('a reply that is not a queue stops the poll instead of throwing', async () => {
     athena.postJsonRpcPayload.mockResolvedValue({ result: {} });
     const h = harness();
