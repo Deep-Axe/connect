@@ -14,7 +14,7 @@ async function initProfile() {
       return await account.getProfile();
     } catch (err) {
       if (err.resp && err.resp.status === 401) {
-        await auth.logOut();
+        // the caller logs out, and only if this session is still the current one
         return SESSION_REJECTED;
       } else {
         console.error(err);
@@ -49,14 +49,16 @@ export function bootstrapSession() {
   return (dispatch, getState, services = fallbackServices) => {
     if (!services.session.promise) {
       const epoch = getState().sessionEpoch;
-      const promise = Promise.all([initProfile(), initDevices()]).then(([profile, devices]) => {
-        if (profile === SESSION_REJECTED) {
-          // the token was refused: end the session like any other logout
-          dispatch(endSession());
+      const promise = Promise.all([initProfile(), initDevices()]).then(async ([profile, devices]) => {
+        if (getState().sessionEpoch !== epoch) {
+          // the session ended while loading: nothing of it may be installed,
+          // and its refusal must not end the session that replaced it
           return { profile: null, devices: [] };
         }
-        if (getState().sessionEpoch !== epoch) {
-          // the session ended while loading: nothing of it may be installed
+        if (profile === SESSION_REJECTED) {
+          // the token was refused: end the session like any other logout
+          await api.auth.logOut();
+          if (getState().sessionEpoch === epoch) dispatch(endSession());
           return { profile: null, devices: [] };
         }
         if (profile) {
@@ -78,12 +80,14 @@ export function endSession() {
   return (dispatch, getState, services = fallbackServices) => {
     services.session.promise = null;
     services.requests.routes = null;
+    services.requests.routesLatest.clear();
     services.requests.events.clear();
     services.requests.coords.clear();
     services.requests.driveCoords.clear();
-    services.commands.pairToken = null;
-    if (services.uploads.timer && services.uploads.timer !== true) clearTimeout(services.uploads.timer);
+    services.commands.pairTokens.clear();
+    if (services.uploads.timer) clearTimeout(services.uploads.timer);
     services.uploads.timer = null;
+    services.uploads.run += 1;
     Sentry.setUser(null);
     dispatch({ type: ACTION_SESSION_ENDED });
   };

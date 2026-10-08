@@ -13,7 +13,9 @@ import { createAppStore } from '../store';
 import localforage from 'localforage';
 import { hardNavigate } from '../utils/navigation';
 import { webrtcConnectionManager } from '../utils/webrtc';
-import { endSession } from '../actions/session';
+import { bootstrapSession, endSession } from '../actions/session';
+import { bufferVideo, seek } from '../timeline/playback';
+import { currentOffset } from '../timeline';
 import { updateFiles } from '../actions/files';
 import * as Types from '../actions/types';
 import { selectSelectedRouteId, selectSelectedRouteMissing, selectSelectionOutOfRange, selectView } from './selectors';
@@ -42,11 +44,18 @@ vi.mock('../api/backend', () => ({
 vi.mock('../api', () => ({
   athena: {}, billing: { getSubscribeInfo: vi.fn(async () => null), getSubscription: vi.fn(async () => null) },
 }));
-vi.mock('../utils/webrtc', () => ({
-  webrtcConnectionManager: {
-    disconnect: vi.fn(), reconnect: vi.fn(), enterStream: vi.fn(), leaveStream: vi.fn(), deviceChanged: vi.fn(),
-  },
-}));
+vi.mock('../utils/webrtc', () => {
+  // tracks which device's stream page holds the connection, like the real one
+  const manager = {
+    streamDongleId: null,
+    disconnect: vi.fn(),
+    reconnect: vi.fn(),
+    deviceChanged: vi.fn(),
+    enterStream: vi.fn((dongleId) => { manager.streamDongleId = dongleId; }),
+    leaveStream: vi.fn((dongleId) => { if (manager.streamDongleId === dongleId) manager.streamDongleId = null; }),
+  };
+  return { webrtcConnectionManager: manager };
+});
 vi.mock('../utils/navigation', () => ({ hardNavigate: vi.fn() }));
 vi.mock('localforage', () => {
   const items = new Map();
@@ -93,6 +102,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  webrtcConnectionManager.streamDongleId = null;
   localStorage.clear();
 });
 
@@ -473,7 +483,6 @@ describe('PR1 verification findings', () => {
     store.dispatch(endSession());
     expect(store.getState().profile).toBeNull();
     api.getProfile.mockResolvedValue({ id: 'next-user' });
-    const { bootstrapSession } = await import('../actions/session');
     await store.dispatch(bootstrapSession());
     expect(store.getState().profile).toEqual({ id: 'next-user' });
   });
@@ -536,3 +545,85 @@ describe('PR1 verification findings', () => {
   });
 });
 
+// Regressions from IMPROVE_ARCH_DOCS/BOTH_BRANCHES_VERIFICATION.md (the
+// reviewer's probes; the stream one asserts the release reported to the
+// connection manager, which now decides whether to disconnect).
+describe('second verification findings', () => {
+  it('a queued canonical rewrite preserves a newer same-page hash navigation', async () => {
+    const { history } = await start(`/${A}`);
+    history.push(`/${A}/`);
+    history.push(`/${A}#new`);
+    await settle(); await settle();
+    expect(history.location.hash).toBe('#new');
+  });
+
+  it('...and the page still loads (the deferred effects are not lost)', async () => {
+    const { history, store } = await start(`/${B}`);
+    api.getRoutesSegments.mockClear();
+    history.push(`/${A}/`);
+    history.push(`/${A}#new`);
+    await settle(); await settle();
+    expect(store.getState().dongleId).toBe(A);
+    expect(api.getRoutesSegments).toHaveBeenCalled();
+  });
+
+  it('rapid stream exit releases even when its first queued effect is superseded', async () => {
+    const { history } = await start(`/${A}/stream`);
+    webrtcConnectionManager.leaveStream.mockClear();
+    history.push(`/${A}`);
+    history.push(`/${A}/${LOG}`);
+    await settle(); await settle();
+    expect(webrtcConnectionManager.leaveStream).toHaveBeenCalledWith(A, expect.anything());
+  });
+
+  it('a command token already consumed in this session is not consumed again after another token', async () => {
+    const { history, store } = await start(`/${A}`);
+    for (const token of ['token-1', 'token-2', 'token-1']) {
+      history.push(`/${A}?pair=${token}`);
+      // one navigation at a time, on purpose
+      // eslint-disable-next-line no-await-in-loop
+      await settle(); await settle();
+    }
+    expect(store.getState().pairRequests).toBe(2);
+  });
+
+  it('a late rejected bootstrap cannot end a newer session', async () => {
+    let rejectOld;
+    api.getProfile.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectOld = reject; }));
+    const { store } = await start(`/${A}`);
+    store.dispatch(endSession());
+    api.getProfile.mockResolvedValue({ id: 'new-user' });
+    await store.dispatch(bootstrapSession());
+    expect(store.getState().profile.id).toBe('new-user');
+    rejectOld({ resp: { status: 401 } });
+    await settle(); await settle();
+    expect(store.getState().profile?.id).toBe('new-user');
+    expect(store.getState().sessionEpoch).toBe(1);
+  });
+
+  it('a range edit preserves elapsed playing position inside the new bounds', async () => {
+    const { store } = await start(`/${A}/${LOG}`);
+    const t = 1900000000000;
+    const now = vi.spyOn(Date, 'now').mockReturnValue(t);
+    try {
+      store.dispatch(seek(0));
+      store.dispatch(bufferVideo(false));
+      now.mockReturnValue(t + 15000);
+      expect(currentOffset(store.getState())).toBe(15000);
+      store.dispatch(toDriveRange(A, LOG, 10000, 20000));
+      await settle();
+      expect(currentOffset(store.getState())).toBe(15000);
+    } finally { now.mockRestore(); }
+  });
+
+  it('newer A request remains authoritative when older A resolves first', async () => {
+    const answers = [];
+    api.getRoutesSegments.mockImplementation((dongleId) => new Promise((resolve) => answers.push({ dongleId, resolve })));
+    const { history, store } = await start(`/${A}`);
+    history.push(`/${B}`); await settle();
+    history.push(`/${A}`); await settle();
+    answers[0].resolve([route(A, LOG)]); await settle();
+    answers[2].resolve([route(A, OTHER_LOG)]); await settle(); await settle();
+    expect(store.getState().routes.map((r) => r.log_id)).toEqual([OTHER_LOG]);
+  });
+});

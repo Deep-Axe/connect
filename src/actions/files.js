@@ -134,12 +134,13 @@ export function fetchFiles(routeName, nocache = false) {
   };
 }
 
-// The upload queue poll is per store (services.uploads.timer): null when
-// idle, true while a request is in flight, or the pending timeout.
+// The upload queue poll is per store (services.uploads): `inFlight` while a
+// request is out, `timer` for the next poll. Stopping clears the timer and
+// bumps `run`, so a request already out doesn't schedule another.
 function stopUploadQueueTimer(services) {
-  const { timer } = services.uploads;
-  if (timer && timer !== true) clearTimeout(timer);
+  if (services.uploads.timer) clearTimeout(services.uploads.timer);
   services.uploads.timer = null;
+  services.uploads.run += 1;
 }
 
 export function cancelFetchUploadQueue() {
@@ -149,80 +150,91 @@ export function cancelFetchUploadQueue() {
 export function fetchUploadQueue(dongleId) {
   return async (rawDispatch, getState, services = fallbackServices) => {
     const dispatch = ownedDispatch(rawDispatch, getState);
-    if (services.uploads.timer) {
+    if (services.uploads.inFlight || services.uploads.timer) {
       return;
     }
-    services.uploads.timer = true;
-
-    dispatch(fetchDeviceNetworkStatus(dongleId));
-
-    const payload = {
-      method: 'listUploadQueue',
-      jsonrpc: '2.0',
-      id: 0,
-    };
-    const uploadQueue = await athenaCall(dongleId, payload, 'action_files_athena_uploadqueue');
-    if (!uploadQueue || !Array.isArray(uploadQueue.result)) {
-      if (uploadQueue && uploadQueue.offline) {
-        dispatch(updateDeviceOnline(dongleId, 0));
-      }
-      stopUploadQueueTimer(services);
-      return;
-    }
-    dispatch(updateDeviceOnline(dongleId, Math.floor(Date.now() / 1000)));
-
-    // only for the selected device; work on a copy of the previous snapshot
-    if (getState().dongleId !== dongleId) {
-      stopUploadQueueTimer(services);
-      return;
-    }
-    const prevFilesUploading = { ...getState().filesUploading };
-    const device = getDeviceFromState(getState(), dongleId);
-    const uploadingFiles = {};
-    const newCurrentUploading = {};
-    uploadQueue.result.forEach((uploading) => {
-      const urlParts = uploading.url.split('?')[0].split('/');
-      const filename = urlParts[urlParts.length - 1];
-      const segNum = urlParts[urlParts.length - 2];
-      const datetime = urlParts[urlParts.length - 3];
-      const dongle = urlParts[urlParts.length - 4];
-      const type = Object.entries(FILE_NAMES).find((e) => e[1].includes(filename))[0];
-      const fileName = `${dongle}|${datetime}--${segNum}/${type}`;
-      const waitingWifi = Boolean(deviceOnCellular(device) && uploading.allow_cellular === false);
-      uploadingFiles[fileName] = {
-        current: uploading.current,
-        progress: uploading.progress,
-        paused: waitingWifi,
-      };
-      newCurrentUploading[uploading.id] = {
-        fileName,
-        current: uploading.current,
-        progress: uploading.progress,
-        createdAt: uploading.created_at,
-        paused: waitingWifi,
-      };
-      delete prevFilesUploading[uploading.id];
-    });
-    // some item is done uploading
-    if (getState().dongleId === dongleId && Object.keys(prevFilesUploading).length) {
-      const routeName = Object.values(prevFilesUploading)[0].fileName.split('--').slice(0, 2).join('--');
-      dispatch(fetchFiles(routeName, true));
-    }
-    dispatch({
-      type: Types.ACTION_FILES_UPLOADING,
-      dongleId,
-      uploading: newCurrentUploading,
-      files: uploadingFiles,
-    });
-    if (services.uploads.timer === true && uploadQueue.result.length) {
-      stopUploadQueueTimer(services);
-      services.uploads.timer = setTimeout(() => {
-        services.uploads.timer = null;
-        // stop polling a device that is no longer selected
-        if (getState().dongleId === dongleId) dispatch(fetchUploadQueue(dongleId));
-      }, 2000);
+    services.uploads.inFlight = true;
+    const { run } = services.uploads;
+    const epoch = getState().sessionEpoch;
+    try {
+      await pollUploadQueueOnce(dongleId, dispatch, getState, services, () => (
+        getState().sessionEpoch === epoch && services.uploads.run === run
+      ));
+    } finally {
+      services.uploads.inFlight = false;
     }
   };
+}
+
+async function pollUploadQueueOnce(dongleId, dispatch, getState, services, stillWanted) {
+  dispatch(fetchDeviceNetworkStatus(dongleId));
+
+  const payload = {
+    method: 'listUploadQueue',
+    jsonrpc: '2.0',
+    id: 0,
+  };
+  const uploadQueue = await athenaCall(dongleId, payload, 'action_files_athena_uploadqueue');
+  // the session ended or polling stopped meanwhile: touch nothing
+  if (!stillWanted()) return;
+  if (!uploadQueue || !Array.isArray(uploadQueue.result)) {
+    if (uploadQueue && uploadQueue.offline) {
+      dispatch(updateDeviceOnline(dongleId, 0));
+    }
+    return;
+  }
+  dispatch(updateDeviceOnline(dongleId, Math.floor(Date.now() / 1000)));
+
+  // only for the selected device; work on a copy of the previous snapshot
+  if (getState().dongleId !== dongleId) {
+    return;
+  }
+  const prevFilesUploading = { ...getState().filesUploading };
+  const device = getDeviceFromState(getState(), dongleId);
+  const uploadingFiles = {};
+  const newCurrentUploading = {};
+  uploadQueue.result.forEach((uploading) => {
+    const urlParts = uploading.url.split('?')[0].split('/');
+    const filename = urlParts[urlParts.length - 1];
+    const segNum = urlParts[urlParts.length - 2];
+    const datetime = urlParts[urlParts.length - 3];
+    const dongle = urlParts[urlParts.length - 4];
+    const type = Object.entries(FILE_NAMES).find((e) => e[1].includes(filename))[0];
+    const fileName = `${dongle}|${datetime}--${segNum}/${type}`;
+    const waitingWifi = Boolean(deviceOnCellular(device) && uploading.allow_cellular === false);
+    uploadingFiles[fileName] = {
+      current: uploading.current,
+      progress: uploading.progress,
+      paused: waitingWifi,
+    };
+    newCurrentUploading[uploading.id] = {
+      fileName,
+      current: uploading.current,
+      progress: uploading.progress,
+      createdAt: uploading.created_at,
+      paused: waitingWifi,
+    };
+    delete prevFilesUploading[uploading.id];
+  });
+  // some item is done uploading
+  if (getState().dongleId === dongleId && Object.keys(prevFilesUploading).length) {
+    const routeName = Object.values(prevFilesUploading)[0].fileName.split('--').slice(0, 2).join('--');
+    dispatch(fetchFiles(routeName, true));
+  }
+  dispatch({
+    type: Types.ACTION_FILES_UPLOADING,
+    dongleId,
+    uploading: newCurrentUploading,
+    files: uploadingFiles,
+  });
+  // keep polling while something is uploading
+  if (uploadQueue.result.length) {
+    services.uploads.timer = setTimeout(() => {
+      services.uploads.timer = null;
+      // stop polling a device that is no longer selected
+      if (getState().dongleId === dongleId) dispatch(fetchUploadQueue(dongleId));
+    }, 2000);
+  }
 }
 
 export function doUpload(dongleId, paths, urls) {

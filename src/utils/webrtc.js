@@ -389,6 +389,7 @@ export class WebRTCConnectionManager {
   constructor({ createConnection = (callbacks) => new WebRTCConnection(callbacks) } = {}) {
     this.createConnection = createConnection;
     this.connection = null;
+    this.streamDongleId = null; // the device whose stream page holds the connection
     this.dongleId = null;
     this.subscriber = null;
     this.videoWanted = false;
@@ -497,6 +498,7 @@ export class WebRTCConnectionManager {
   // the stream page for `dongleId` is (about to be) shown
   enterStream(dongleId) {
     if (!dongleId) return null;
+    this.streamDongleId = dongleId;
     if (!this._healthy(dongleId)) this._open(dongleId, true);
     this.setVideoEnabled(true);
     this.setJoystickEnabled(true);
@@ -505,6 +507,7 @@ export class WebRTCConnectionManager {
 
   // the stream page for `dongleId` was left; `keepWarm` for a comma body
   leaveStream(dongleId, { keepWarm = false } = {}) {
+    if (this.streamDongleId === dongleId) this.streamDongleId = null;
     if (this.dongleId !== dongleId) return;
     this.subscriber = null;
     this.setVideoEnabled(false);
@@ -541,6 +544,7 @@ export class WebRTCConnectionManager {
   disconnect(reason) {
     this._teardown(reason);
     this.dongleId = null;
+    this.streamDongleId = null;
   }
   
   setVideoEnabled(enabled) {

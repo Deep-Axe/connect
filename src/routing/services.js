@@ -53,14 +53,14 @@ export function createHistoryTracker() {
 export function createRoutingServices() {
   return {
     history: createHistoryTracker(),
-    navigation: { generation: 0 },
+    navigation: { generation: 0, revision: 0 },
     session: { promise: null },
     requests: {
-      routes: null,
+      routes: null, routesSeq: 0, routesLatest: new Map(),
       events: new Map(), coords: new Map(), driveCoords: new Map(),
     },
-    commands: { pairToken: null },
-    uploads: { timer: null },
+    commands: { pairTokens: new Set() },
+    uploads: { timer: null, inFlight: false, run: 0 },
   };
 }
 

@@ -30,13 +30,18 @@ function rememberedOrFirstDevice(devices) {
 // A pair token from the URL is stored (it survives a login redirect) and
 // handed to the explorer, once per token per session.
 async function receivePairToken(token, ctx) {
-  if (ctx.services.commands.pairToken === token) return;
-  ctx.services.commands.pairToken = token;
+  const { pairTokens } = ctx.services.commands;
+  if (pairTokens.has(token)) return;
+  pairTokens.add(token);
+  const epoch = ctx.getState().sessionEpoch;
   try {
     await localforage.setItem('pairToken', token);
   } catch (err) {
     console.error(err);
+    pairTokens.delete(token); // not stored: the same link may try again
+    return;
   }
+  if (ctx.getState().sessionEpoch !== epoch) return;
   ctx.dispatch({ type: ACTION_PAIR_REQUESTED });
 }
 
@@ -70,7 +75,9 @@ function consumeCommands(next, ctx) {
   if (commands.pair) receivePairToken(commands.pair, ctx);
 
   consumed.push(...CONSUMED_COMMANDS.filter((key) => commands[key] != null));
-  if (consumed.length) {
+  // rewrite only the exact location the commands came from; a newer one (even
+  // on the same page) is left as it is
+  if (consumed.length && ctx.isLatest()) {
     dispatch(replace(buildUrl(withoutCommands(next, consumed))));
   }
   return false;
@@ -84,7 +91,9 @@ async function resolveRoot(next, ctx) {
   if (!ctx.isCurrent()) return;
   const device = rememberedOrFirstDevice(devices || []);
   if (device) {
-    const target = { ...locationFor(deviceBase(VIEWS.DASHBOARD, device.dongle_id), next), hash: next.hash };
+    // from the latest location on this page, which may carry newer context
+    const latest = ctx.latestLocation();
+    const target = { ...locationFor(deviceBase(VIEWS.DASHBOARD, device.dongle_id), latest), hash: latest.hash };
     ctx.dispatch(replace(buildUrl(target)));
   }
 }
@@ -96,7 +105,10 @@ async function resolveLegacyRange(next, ctx) {
     const routes = await api.routes.getRoutesSegments(base.dongleId, base.legacyRange.start, base.legacyRange.end);
     if (!ctx.isCurrent()) return;
     const logId = routes?.[0]?.fullname?.split('|')[1];
-    if (logId) ctx.dispatch(replace(buildUrl({ ...next, commands: {}, base: driveBase(base.dongleId, logId) })));
+    if (logId) {
+      // from the latest location on this page, which may carry newer context
+      ctx.dispatch(replace(buildUrl({ ...ctx.latestLocation(), commands: {}, base: driveBase(base.dongleId, logId) })));
+    }
   } catch (err) {
     console.error('Error fetching routes data for log ID conversion', err);
   }
@@ -137,17 +149,16 @@ export function runNavigationEffects(previous, next, ctx) {
     Sentry.captureException(err, { fingerprint: 'navigation_effect' });
   });
 
-  // the stream connection: report enter/leave/device change; the connection
-  // manager decides what stays open
-  const previousBase = previous?.base;
-  const leftStream = previousBase?.view === VIEWS.STREAM
-    && !(base.view === VIEWS.STREAM && base.dongleId === previousBase.dongleId);
+  // the stream connection: compare where we are with who actually holds it
+  // (not with the previous URL: an intermediate page may never have run its
+  // effects); the connection manager decides what stays open
   const { dongleId } = ctx.getState();
   const deviceChanged = Boolean(base.dongleId && dongleId === base.dongleId && dongleId !== ctx.previousDongleId);
-  if (leftStream) {
+  const streaming = webrtcConnectionManager.streamDongleId;
+  if (streaming && !(base.view === VIEWS.STREAM && base.dongleId === streaming)) {
     // a comma body stays warm for a quick return; a car's connection closes
-    const left = getDeviceFromState(ctx.getState(), previousBase.dongleId);
-    webrtcConnectionManager.leaveStream(previousBase.dongleId, { keepWarm: Boolean(left?.rpc?.not_car) });
+    const left = getDeviceFromState(ctx.getState(), streaming);
+    webrtcConnectionManager.leaveStream(streaming, { keepWarm: Boolean(left?.rpc?.not_car) });
   }
   if (deviceChanged) webrtcConnectionManager.deviceChanged(dongleId);
   if (base.view === VIEWS.STREAM) webrtcConnectionManager.enterStream(base.dongleId);
@@ -161,13 +172,17 @@ export function runNavigationEffects(previous, next, ctx) {
   }
 }
 
-export function createEffectContext(store, services, generation, previousDongleId) {
+export function createEffectContext(store, services, generation, revision, previousDongleId) {
   return {
     dispatch: store.dispatch,
     getState: store.getState,
     services,
     previousDongleId,
+    // still the same page (loads, redirects)
     isCurrent: () => services.navigation.generation === generation,
+    // still exactly this location (rewriting the URL in place)
+    isLatest: () => services.navigation.revision === revision,
+    latestLocation: () => store.getState().nav.location,
     session: () => store.dispatch(bootstrapSession()),
   };
 }

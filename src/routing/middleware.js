@@ -42,13 +42,21 @@ export function createRoutingMiddleware(services) {
     services.history.observe(routerLocation, historyAction);
 
     const location = parseLocation(routerLocation);
-    const pendingUrl = services.navigation.pendingCanonical?.url;
-    const samePage = sameBase(previous, location) && Object.keys(location.commands).length === 0
-      && pendingUrl !== buildUrl(location);
-    // a query/hash-only change on the same page (e.g. consuming a command) is
-    // not a new navigation: in-flight redirects for this page stay valid
+    const canonical = buildUrl(location);
+    // a non-canonical entry deferred its effects to the next location on the
+    // same page: its own rewrite, or a newer one that superseded it
+    const pending = services.navigation.pendingCanonical;
+    const resumed = Boolean(pending && sameBase(pending.location, location));
+    const samePage = !resumed && sameBase(previous, location) && Object.keys(location.commands).length === 0;
+    // Two counters, two questions:
+    //  - generation: is this still the same page? Advanced only when the page
+    //    changes; guards loads and redirects (a query/hash-only change, such
+    //    as consuming a command, keeps them valid).
+    //  - revision: is this still the exact location? Advanced on every
+    //    commit; guards rewrites of the URL itself.
     if (!samePage) services.navigation.generation += 1;
-    const { generation } = services.navigation;
+    services.navigation.revision += 1;
+    const { generation, revision } = services.navigation;
     store.dispatch({
       type: NAVIGATION_COMMITTED,
       location,
@@ -57,33 +65,28 @@ export function createRoutingMiddleware(services) {
       at: Date.now(),
     });
 
-    const canonical = buildUrl(location);
     if (canonical && canonical !== urlOfRouterLocation(routerLocation)) {
       // trailing slash, aliases (/demo), non-canonical numbers: rewrite the
       // URL first and run effects once, for the canonical location, against
       // the state from before this non-canonical entry
-      services.navigation.pendingCanonical = services.navigation.pendingCanonical
-        ?? { url: canonical, previous, previousDongleId };
+      services.navigation.pendingCanonical = resumed ? pending : { location, previous, previousDongleId };
       afterRender(() => {
-        // a newer navigation wins over this queued rewrite
-        if (services.navigation.generation === generation) store.dispatch(replace(canonical));
+        // any newer location, even on the same page, wins over this rewrite
+        if (services.navigation.revision === revision) store.dispatch(replace(canonical));
       });
       return result;
     }
 
-    const pending = services.navigation.pendingCanonical;
     services.navigation.pendingCanonical = null;
-    const resumed = pending?.url === canonical;
     if (resumed) {
       ({ previous, previousDongleId } = pending);
     }
 
-    const commandsPresent = Object.keys(location.commands).length > 0;
-    if (!resumed && sameBase(previous, location) && !commandsPresent) {
+    if (samePage) {
       return result; // query/hash-only change: nothing to load
     }
 
-    const ctx = createEffectContext(store, services, generation, previousDongleId);
+    const ctx = createEffectContext(store, services, generation, revision, previousDongleId);
     afterRender(() => runNavigationEffects(previous, location, ctx));
     return result;
   };

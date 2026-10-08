@@ -1,6 +1,7 @@
 import * as Types from '../actions/types';
-import { emptyDevice } from '../utils';
+import { emptyDevice } from '../utils/emptyDevice';
 import { getDefaultFilter } from '../utils/filter';
+import { offsetAt } from '../timeline/offset';
 
 const eventsMap = {};
 const locationMap = {};
@@ -99,6 +100,9 @@ function applySelectedDrive(state, previousBase, base, at) {
     || zoom.start < state.zoom.start || zoom.end > state.zoom.end) {
     state.files = null;
   }
+  // where playback actually is right now (offset is only an anchor: playing
+  // advances from it since startTime), under the old selection
+  const position = sameDrive && state.offset != null ? offsetAt(state, at) : null;
   state.currentRoute = currentRoute;
   state.zoom = zoom;
 
@@ -107,8 +111,11 @@ function applySelectedDrive(state, previousBase, base, at) {
   } else {
     // the loop is exactly the selection, whether it narrowed or widened
     state.loop = { startTime: zoom.start, duration: zoom.end - zoom.start };
-    const playheadInside = sameDrive && state.offset != null && state.offset >= zoom.start && state.offset <= zoom.end;
-    if (!playheadInside) {
+    if (position != null && position >= zoom.start && position <= zoom.end) {
+      // keep playing from the same place, re-anchored at this commit
+      state.offset = position;
+      state.startTime = at;
+    } else {
       state.desiredPlaySpeed = 1;
       state.isBufferingVideo = true;
       state.offset = zoom.start;
@@ -164,6 +171,14 @@ function adoptCurrentRoute(state) {
     state.loop = { startTime: state.zoom.start, duration: state.zoom.end - state.zoom.start };
   }
   return state;
+}
+
+// A route asset fetched for an older version of the route (fewer qlogs).
+function staleRouteVersion(state, action) {
+  if (action.maxqlog === undefined) return false;
+  const route = state.routes?.find((r) => r.fullname === action.fullname)
+    || (state.currentRoute?.fullname === action.fullname ? state.currentRoute : null);
+  return Boolean(route && route.maxqlog !== action.maxqlog);
 }
 
 export default function reducer(_state, action) {
@@ -283,6 +298,7 @@ export default function reducer(_state, action) {
       break;
     }
     case Types.ACTION_UPDATE_ROUTE:
+      if (staleRouteVersion(state, action)) break;
       if (state.routes) {
         state.routes = state.routes.map((route) => {
           if (route.fullname === action.fullname) {
@@ -302,6 +318,7 @@ export default function reducer(_state, action) {
       }
       break;
     case Types.ACTION_UPDATE_ROUTE_EVENTS: {
+      if (staleRouteVersion(state, action)) break;
       const firstFrame = action.events.find((ev) => ev.type === 'event' && ev.data.event_type === 'first_road_camera_frame');
       const videoStartOffset = firstFrame ? firstFrame.route_offset_millis : null;
       eventsMap[action.fullname] = {

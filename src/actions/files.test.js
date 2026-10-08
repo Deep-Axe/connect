@@ -24,6 +24,7 @@ describe('upload queue poll', () => {
     const { promise, dispatched } = run(fetchUploadQueue(A), state, services);
     await expect(promise).resolves.toBeUndefined();
     expect(services.uploads.timer).toBeNull();
+    expect(services.uploads.inFlight).toBe(false);
     expect(dispatched.some((a) => a.type === 'ACTION_FILES_UPLOADING')).toBe(false);
   });
 
@@ -33,7 +34,7 @@ describe('upload queue poll', () => {
     const two = createRoutingServices();
     const state = { dongleId: A, sessionEpoch: 0, device: { dongle_id: A }, devices: [], filesUploading: {} };
     run(fetchUploadQueue(A), state, one);
-    expect(one.uploads.timer).toBe(true);
-    expect(two.uploads.timer).toBeNull();
+    expect(one.uploads.inFlight).toBe(true);
+    expect(two.uploads.inFlight).toBe(false);
   });
 });

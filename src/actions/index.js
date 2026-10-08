@@ -54,15 +54,16 @@ function routesNeed(state) {
   return 'list';
 }
 
-// Everything that determines the result of a routes request. A response is
-// only applied while this identity is still the current one. It includes
-// what the view still needs, so once any response for a view is applied, an
-// older one for the same view no longer matches (A → B → A).
-function routesRequestKey(state) {
+// The view a routes request serves: everything that determines its result.
+function routesViewKey(state) {
   return JSON.stringify([
     state.sessionEpoch, state.dongleId, selectSelectedRouteId(state), state.filter.start, state.filter.end, state.limit,
-    routesNeed(state),
   ]);
+}
+
+// A request's identity: its view and what that view still needed.
+function routesRequestKey(state) {
+  return JSON.stringify([routesViewKey(state), routesNeed(state)]);
 }
 
 export function checkRoutesData() {
@@ -92,7 +93,12 @@ export function checkRoutesData() {
     const req = selectedRouteId
       ? api.routes.getRoutesSegments(dongleId, undefined, undefined, undefined, `${dongleId}|${selectedRouteId}`)
       : api.routes.getRoutesSegments(dongleId, fetchRange.start, fetchRange.end, fetchLimit);
-    const request = { key };
+    // only the latest request issued for a view may answer for it, whichever
+    // order responses arrive in (A1 → B → A2: A1 is superseded by A2)
+    services.requests.routesSeq += 1;
+    const viewKey = routesViewKey(state);
+    const request = { key, seq: services.requests.routesSeq };
+    services.requests.routesLatest.set(viewKey, request.seq);
     services.requests.routes = request;
     const release = () => {
       if (services.requests.routes === request) services.requests.routes = null;
@@ -100,6 +106,10 @@ export function checkRoutesData() {
 
     request.promise = req.then((routesData) => {
       state = getState();
+      if (services.requests.routesLatest.get(viewKey) !== request.seq) {
+        release();
+        return;
+      }
       if (routesRequestKey(state) !== key) {
         // obsolete: the device, drive, filter, limit or session changed meanwhile
         release();

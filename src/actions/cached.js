@@ -274,6 +274,15 @@ function inFlight(map, key, load) {
   return map.get(key);
 }
 
+// A segment's asset file: 404 means the file doesn't exist (an empty part);
+// any other failure fails the whole request, so it is not remembered as
+// loaded and can be retried.
+async function assetJson(resp) {
+  if (resp.ok) return resp.json();
+  if (resp.status === 404) return [];
+  throw new Error(`asset request failed: HTTP ${resp.status}`);
+}
+
 function routeLoaded(state, route, field) {
   const loaded = state.routes?.find((r) => r.fullname === route.fullname);
   return Boolean(loaded?.[field]);
@@ -299,7 +308,7 @@ export function fetchEvents(route) {
           url.hostname = 'chffrprivate.azureedge.local';
         }
         const resp = await fetch(url, { method: 'GET' });
-        return resp.ok ? resp.json() : [];
+        return assetJson(resp);
       }));
       const events = parseEvents(route, [].concat(...parts));
       if (!USE_LOCAL_EVENTS_DATA) {
@@ -312,6 +321,7 @@ export function fetchEvents(route) {
     dispatch({
       type: Types.ACTION_UPDATE_ROUTE_EVENTS,
       fullname: route.fullname,
+      maxqlog: route.maxqlog,
       events: driveEvents,
     });
   };
@@ -373,7 +383,7 @@ export function fetchDriveCoords(route) {
           url.hostname = 'chffrprivate.azureedge.local';
         }
         const resp = await fetch(url, { method: 'GET' });
-        return resp.ok ? resp.json() : [];
+        return assetJson(resp);
       }));
       const coords = parts.reduce((prev, curr) => ({
         ...prev,
@@ -392,6 +402,7 @@ export function fetchDriveCoords(route) {
     dispatch({
       type: Types.ACTION_UPDATE_ROUTE,
       fullname: route.fullname,
+      maxqlog: route.maxqlog,
       route: {
         driveCoords,
       },
