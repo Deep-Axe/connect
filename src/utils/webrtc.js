@@ -443,7 +443,10 @@ export class WebRTCConnectionManager {
   }
 
   _open(dongleId, videoEnabled = false) {
-    this.disconnect();
+    // replacing the transport is not a release: the stream page that owns the
+    // connection keeps owning it (unless the new transport is another device's)
+    this._teardown();
+    if (this.streamDongleId && this.streamDongleId !== dongleId) this.streamDongleId = null;
     this.dongleId = dongleId;
     // ignore callbacks from a connection we've already torn down or replaced
     let conn;
@@ -520,9 +523,12 @@ export class WebRTCConnectionManager {
     if (this.dongleId && this.dongleId !== dongleId) this.disconnect();
   }
 
-  // explicit retry from the stream page: always a fresh connection
+  // explicit retry from the stream page: always a fresh connection, still
+  // owned by that stream page
   reconnect(dongleId) {
-    this._open(dongleId ?? this.dongleId, true);
+    const target = dongleId ?? this.dongleId;
+    if (target) this.streamDongleId = target;
+    this._open(target, true);
     this.setVideoEnabled(true);
     this.setJoystickEnabled(true);
     return this.connection;

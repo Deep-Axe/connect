@@ -1,7 +1,8 @@
 // The connection policy, against a fake connection: no real WebRTC.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { WebRTCConnectionManager } from './webrtc';
+import { WebRTCConnectionManager, webrtcConnectionManager as liveManager } from './webrtc';
+import { runNavigationEffects } from '../routing/effects';
 
 const A = 'aaaaaaaaaaaaaaaa';
 const B = 'bbbbbbbbbbbbbbbb';
@@ -74,5 +75,74 @@ describe('stream connection policy', () => {
     manager.reconnect(A);
     expect(opened).toHaveLength(2);
     expect(opened[0].disconnect).toHaveBeenCalled();
+  });
+});
+
+// Regressions from IMPROVE_ARCH_DOCS/RESTACKED_TIPS_VERIFICATION.md: opening
+// or retrying the transport must not drop the stream page's ownership.
+describe('stream ownership', () => {
+  it('a cold enter keeps the stream owner after opening the transport', () => {
+    manager.enterStream(A);
+    expect(manager.streamDongleId).toBe(A);
+  });
+
+  it('explicit stream retry keeps the stream owner', () => {
+    manager.prewarm(A);
+    manager.enterStream(A);
+    expect(manager.streamDongleId).toBe(A);
+    manager.reconnect(A);
+    expect(manager.streamDongleId).toBe(A);
+  });
+
+  it('a real release, disconnect or device change clears it', () => {
+    manager.enterStream(A);
+    manager.leaveStream(A, { keepWarm: true });
+    expect(manager.streamDongleId).toBeNull();
+    manager.enterStream(A);
+    manager.disconnect();
+    expect(manager.streamDongleId).toBeNull();
+    manager.enterStream(A);
+    manager.deviceChanged(B);
+    expect(manager.streamDongleId).toBeNull();
+  });
+
+  // the real exported manager and the real navigation effects; only the
+  // transport and the effect dispatch boundary are faked
+  const leaveColdStream = (notCar) => {
+    liveManager.disconnect();
+    const originalFactory = liveManager.createConnection;
+    liveManager.createConnection = fakeConnection;
+    try {
+      liveManager.enterStream(A);
+      const connection = liveManager.connection;
+      runNavigationEffects(null, { base: { view: 'dashboard', dongleId: A }, commands: {} }, {
+        isCurrent: () => true,
+        isLatest: () => true,
+        previousDongleId: A,
+        getState: () => ({ dongleId: A, limit: 5, device: { dongle_id: A, rpc: { not_car: notCar } }, devices: [] }),
+        dispatch: vi.fn(),
+        services: { commands: { pairTokens: new Set() } },
+      });
+      // read before the cleanup below disconnects everything
+      return {
+        disconnected: connection.disconnect.mock.calls.length > 0, kept: liveManager.connection === connection, owner: liveManager.streamDongleId,
+      };
+    } finally {
+      liveManager.disconnect();
+      liveManager.createConnection = originalFactory;
+    }
+  };
+
+  it('leaving a cold SPA stream closes the actual car transport', () => {
+    const { disconnected, kept } = leaveColdStream(false);
+    expect(disconnected).toBe(true);
+    expect(kept).toBe(false);
+  });
+
+  it('leaving a cold SPA stream keeps a comma body warm and releases ownership', () => {
+    const { disconnected, kept, owner } = leaveColdStream(true);
+    expect(disconnected).toBe(false);
+    expect(kept).toBe(true);
+    expect(owner).toBeNull();
   });
 });
