@@ -8,6 +8,7 @@ import { ClipChangedError, clipDevice } from '../../api/clips';
 import { CloseBold, Download as DownloadIcon, PlayArrow, Trash } from '../../icons';
 import { shareOrDownload } from '../../utils/file';
 import InfoTooltip from '../utils/InfoTooltip';
+import clipModalManager from './clipModalManager';
 
 const MAX_CLIP_DURATION = 30 * 60;
 const POLL_INTERVAL = 1000;
@@ -513,9 +514,10 @@ class ClipMenu extends Component {
   renderViewer() {
     const { classes, preview, onClosePreview } = this.props;
     const { previewUrl, viewingClip, previewProblem } = this.state;
+    if (!preview || (!viewingClip && !previewProblem)) return null;
     if (previewProblem) {
       return (
-        <Dialog open={Boolean(preview)} onClose={onClosePreview} classes={{ paper: classes.deletePaper }}>
+        <Dialog manager={clipModalManager} open={Boolean(preview)} onClose={onClosePreview} classes={{ paper: classes.deletePaper }}>
           <DialogTitle className={classes.deleteTitle}>Clip unavailable</DialogTitle>
           <DialogContent>
             <Typography className={classes.deleteContent}>{previewProblem}</Typography>
@@ -532,7 +534,7 @@ class ClipMenu extends Component {
       ? formatDuration((viewingClip.source_end_time - viewingClip.source_start_time) / (viewingClip.speedup || 1))
       : '';
     return (
-      <Dialog open={Boolean(preview && viewingClip)} onClose={onClosePreview} classes={{ paper: classes.viewerPaper }} maxWidth="md">
+      <Dialog manager={clipModalManager} open={Boolean(preview && viewingClip)} onClose={onClosePreview} classes={{ paper: classes.viewerPaper }} maxWidth="md">
         <DialogTitle disableTypography className={classes.viewerTitle}>
           <div className={classes.viewerDetails}>
             <Typography className={`${classes.header} ${classes.viewerHeader}`}>{title}</Typography>
@@ -562,6 +564,7 @@ class ClipMenu extends Component {
     const title = deletingClip?.filename?.replace(/\.mp4$/i, '') || 'this clip';
     return (
       <Dialog
+        manager={clipModalManager}
         open={deleteDialogOpen}
         onClose={() => !deleting && this.setState({ deleteDialogOpen: false })}
         classes={{ paper: classes.deletePaper }}
@@ -665,6 +668,7 @@ class ClipMenu extends Component {
     return (
       <>
         <Dialog
+        manager={clipModalManager}
           open={open}
           onClose={onClose}
           aria-label="Clips"
