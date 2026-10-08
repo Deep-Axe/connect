@@ -6,7 +6,8 @@ import * as Sentry from '@sentry/react';
 
 import { api } from '../../api/backend';
 import { updateDevices, analyticsEvent } from '../../actions';
-import { toDashboard } from '../../routing/navigate';
+import { MODALS, modalOf } from '../../routing/codec';
+import { openModal, toDashboard } from '../../routing/navigate';
 import { verifyPairToken, pairErrorToMessage } from '../../utils';
 import { AddCircleOutlineIcon } from '../../icons';
 import Colors from '../../colors';
@@ -97,12 +98,15 @@ const styles = (theme) => ({
   },
 });
 
-class AddDevice extends Component {
+// The pairing dialog, hosted by ModalHost for /devices/add and
+// ?modal=add-device. The camera starts only after a user action: right away
+// when the dialog was opened by a click, otherwise from its own button.
+export class AddDeviceDialog extends Component {
   constructor(props) {
     super(props);
 
     this.state = {
-      modalOpen: false,
+      cameraRequested: Boolean(props.autoStartCamera),
       hasCamera: null,
       cameraError: null,
       pairLoading: false,
@@ -124,7 +128,7 @@ class AddDevice extends Component {
     this.modalClose = this.modalClose.bind(this);
     this.onQrRead = this.onQrRead.bind(this);
     this.restart = this.restart.bind(this);
-    this.onOpenModal = this.onOpenModal.bind(this);
+    this.requestCamera = this.requestCamera.bind(this);
     this.scanFrame = this.scanFrame.bind(this);
     this.startScanning = this.startScanning.bind(this);
     this.stopScanning = this.stopScanning.bind(this);
@@ -134,8 +138,21 @@ class AddDevice extends Component {
     this.componentDidUpdate({}, {});
   }
 
+  componentWillUnmount() {
+    this.releaseCamera();
+  }
+
+  releaseCamera() {
+    this.stopScanning();
+    if (this.stream) {
+      this.stream.getTracks().forEach((track) => track.stop());
+      this.stream = null;
+    }
+    this.detector = null;
+  }
+
   async componentDidUpdate() {
-    const { modalOpen, pairLoading, pairError, pairDongleId } = this.state;
+    const { cameraRequested, pairLoading, pairError, pairDongleId } = this.state;
     let { hasCamera } = this.state;
 
     // Check for camera availability
@@ -151,7 +168,7 @@ class AddDevice extends Component {
     }
 
     // Initialize detector and camera stream
-    if (modalOpen && this.videoRef && !this.detector && hasCamera && !pairDongleId) {
+    if (cameraRequested && this.videoRef && !this.detector && hasCamera && !pairDongleId) {
       try {
         this.detector = new BarcodeDetector({ formats: ['qr_code'] });
         this.stream = await navigator.mediaDevices.getUserMedia({
@@ -220,7 +237,7 @@ class AddDevice extends Component {
     }
 
     // Start scanning if conditions are met
-    if (!pairLoading && !pairError && !pairDongleId && this.detector && modalOpen && hasCamera && !this.scanning) {
+    if (!pairLoading && !pairError && !pairDongleId && this.detector && cameraRequested && hasCamera && !this.scanning) {
       this.startScanning();
     }
   }
@@ -255,14 +272,6 @@ class AddDevice extends Component {
     }
   }
 
-  async componentWillUnmount() {
-    this.stopScanning();
-    if (this.stream) {
-      this.stream.getTracks().forEach((track) => track.stop());
-      this.stream = null;
-    }
-  }
-
   async onVideoRef(ref) {
     this.videoRef = ref;
     this.componentDidUpdate();
@@ -284,12 +293,7 @@ class AddDevice extends Component {
   modalClose() {
     const { pairDongleId } = this.state;
 
-    this.stopScanning();
-    if (this.stream) {
-      this.stream.getTracks().forEach((track) => track.stop());
-      this.stream = null;
-    }
-    this.detector = null;
+    this.releaseCamera();
 
     if (pairDongleId && this.props.devices.length === 0) {
       this.props.dispatch(analyticsEvent('pair_device', { method: 'add_device_new' }));
@@ -297,9 +301,11 @@ class AddDevice extends Component {
       return;
     }
 
-    this.setState({ modalOpen: false, pairLoading: false, pairError: null, pairDongleId: null });
     if (pairDongleId) {
+      // the new device's dashboard replaces the dialog
       this.props.dispatch(toDashboard(pairDongleId));
+    } else {
+      this.props.onClose();
     }
   }
 
@@ -370,23 +376,19 @@ class AddDevice extends Component {
     }
   }
 
-  onOpenModal() {
-    this.setState({ modalOpen: true });
+  requestCamera() {
+    this.setState({ cameraRequested: true });
   }
 
   render() {
-    const { classes, buttonText, buttonStyle, buttonIcon } = this.props;
-    const { modalOpen, hasCamera, cameraError, pairLoading, pairDongleId, pairError } = this.state;
+    const { classes } = this.props;
+    const { cameraRequested, hasCamera, cameraError, pairLoading, pairDongleId, pairError } = this.state;
 
     const videoContainerOverlay = (pairLoading || pairDongleId || pairError) ? classes.videoContainerOverlay : '';
 
     return (
       <>
-        <Button onClick={this.onOpenModal} className={ classes.addButton } style={ buttonStyle }>
-          { buttonText }
-          { buttonIcon && <AddCircleOutlineIcon style={{ color: 'rgba(255, 255, 255, 0.3)' }} /> }
-        </Button>
-        <Modal aria-labelledby="add-device-modal" open={ modalOpen } onClose={ this.modalClose }>
+        <Modal aria-labelledby="add-device-modal" open onClose={ this.modalClose }>
           <Paper className={ classes.modal }>
             <div className={ classes.titleContainer }>
               <Typography variant="title">Pair device</Typography>
@@ -395,7 +397,12 @@ class AddDevice extends Component {
               </Typography>
             </div>
             <hr className={ classes.divider } />
-            { hasCamera === false
+            { hasCamera !== false && !cameraRequested && (
+              <Button className={ classes.retryButton } onClick={ this.requestCamera }>
+                scan QR code with camera
+              </Button>
+            ) }
+            { hasCamera !== false && !cameraRequested ? null : hasCamera === false
               ? (
                 <>
                   <Typography style={{ marginBottom: 5 }}>
@@ -448,4 +455,18 @@ const stateToProps = (state) => ({
   devices: state.devices,
 });
 
-export default connect(stateToProps)(withStyles(styles)(AddDevice));
+export const ConnectedAddDeviceDialog = connect(stateToProps)(withStyles(styles)(AddDeviceDialog));
+
+// Opens the pairing dialog by URL.
+const AddDevice = ({ classes, dispatch, buttonText, buttonStyle, buttonIcon }) => (
+  <Button
+    onClick={ () => dispatch(openModal(modalOf(MODALS.ADD_DEVICE))) }
+    className={ classes.addButton }
+    style={ buttonStyle }
+  >
+    { buttonText }
+    { buttonIcon && <AddCircleOutlineIcon style={{ color: 'rgba(255, 255, 255, 0.3)' }} /> }
+  </Button>
+);
+
+export default connect()(withStyles(styles)(AddDevice));

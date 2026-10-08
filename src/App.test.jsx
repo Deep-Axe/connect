@@ -10,7 +10,7 @@ import { createInitialState } from './initialState';
 import { selectSelectedRouteId } from './routing/selectors';
 import { createAppStore } from './store';
 
-const mocks = vi.hoisted(() => ({ authenticated: true, options: {}, requests: [], hardNavigate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ authenticated: true, options: {}, requests: [], rpcs: [], hardNavigate: vi.fn() }));
 
 vi.mock('@commaai/my-comma-auth', () => ({
   default: {
@@ -60,6 +60,19 @@ vi.mock('react-player/file', () => ({
     return <div data-testid="video-player" />;
   }),
 }));
+// jsdom has no IndexedDB: an in-memory store for the pair token and clip cache
+vi.mock('localforage', () => {
+  const store = () => {
+    const items = new Map();
+    return {
+      getItem: async (key) => (items.has(key) ? items.get(key) : null),
+      setItem: async (key, value) => { items.set(key, value); return value; },
+      removeItem: async (key) => { items.delete(key); },
+      keys: async () => [...items.keys()],
+    };
+  };
+  return { default: { ...store(), createInstance: store } };
+});
 vi.mock('barcode-detector/ponyfill', () => ({ BarcodeDetector: class { detect() { return []; } } }));
 
 const FIRST = 'aaaaaaaaaaaaaaaa';
@@ -93,6 +106,13 @@ function json(body, status = 200) {
 async function mockFetch(input, init = {}) {
   const url = new URL(typeof input === 'string' ? input : input.url);
   mocks.requests.push({ method: init.method || 'GET', url: url.href });
+  if (url.hostname === 'athena.comma.ai') {
+    const rpc = init.body ? JSON.parse(init.body) : {};
+    mocks.rpcs.push(rpc.method);
+    if (rpc.method === 'getClipState') return json({ jsonrpc: '2.0', id: rpc.id, result: { clips: mocks.options.clips ?? [] } });
+    if (rpc.method === 'getVersion') return json({ jsonrpc: '2.0', id: rpc.id, result: { commit_date: 1 } });
+    return json({ jsonrpc: '2.0', id: rpc.id ?? 0, result: {} });
+  }
   const options = mocks.options;
   const deviceList = options.devices ?? devices;
   if (url.pathname === '/v1/me/turn') return json(null);
@@ -121,12 +141,13 @@ async function mockFetch(input, init = {}) {
   if (url.pathname.endsWith('/stats')) return json(null);
   if (/^\/v1\.1\/devices\/[a-f0-9]{16}\/$/.test(url.pathname)) {
     const dongleId = url.pathname.split('/')[3];
+    const listed = deviceList.find((device) => device.dongle_id === dongleId);
+    if (listed) return json(listed);
     return json({ alias: 'Shared device', dongle_id: dongleId, device_type: 'threex', is_owner: false, prime: false });
   }
   if (url.pathname.endsWith('/subscription') || url.pathname.endsWith('/subscribe_info')) return json(null);
   if (url.pathname.endsWith('/events.json') || url.pathname.endsWith('/coords.json')) return json([]);
   if (url.pathname.endsWith('/files') || url.pathname.endsWith('/preserved')) return json(url.pathname.endsWith('/files') ? {} : []);
-  if (url.hostname === 'athena.comma.ai') return json({ jsonrpc: '2.0', id: 0, result: {} });
   throw new Error(`Unhandled request: ${init.method || 'GET'} ${url.href}`);
 }
 
@@ -134,6 +155,7 @@ async function renderApp(pathname, options = {}) {
   mocks.authenticated = options.authenticated !== false;
   mocks.options = options;
   mocks.requests = [];
+  mocks.rpcs = [];
   window.history.replaceState({}, '', pathname);
   if (options.selected) localStorage.setItem('selectedDongleId', options.selected);
   const history = createMemoryHistory({ initialEntries: [pathname] });
@@ -331,6 +353,102 @@ describe('whole-app behavior', () => {
     await act(async()=>{app.history.push(`/?r=${encodeURIComponent(second)}`);await new Promise(r=>setTimeout(r,10));});
     expect(sessionStorage.getItem('redirectURL')).toBe(second);
   });
+  describe('task dialogs by URL', () => {
+    const online = () => devices.map((device) => ({
+      ...device, last_athena_ping: Math.floor(Date.now() / 1000), openpilot_version: '0.11.2',
+    }));
+    const url = (history) => `${history.location.pathname}${history.location.search}`;
+    let innerWidth;
+    beforeEach(() => { innerWidth = window.innerWidth; });
+    afterEach(() => { window.innerWidth = innerWidth; });
+
+    test('settings for another device open over a drive and close back to it', async () => {
+      window.innerWidth = 1400; // permanent drawer with the device list
+      const { history, store } = await renderApp(`/${FIRST}/${LOG}/10/20`);
+      await screen.findByRole('slider', { name: 'Drive timeline' });
+      const player = screen.getByTestId('video-player');
+      const { zoom } = store.getState();
+      const gear = screen.getAllByRole('button', { name: 'device settings' })
+        .find((button) => button.closest('a').getAttribute('href') === `/${SECOND}`);
+      fireEvent.click(gear);
+      await waitFor(() => expect(url(history)).toBe(`/${FIRST}/${LOG}/10/20?modal=settings&modalDevice=${SECOND}`));
+      expect(await screen.findByText('Device settings')).toBeVisible();
+      expect(screen.getByDisplayValue('Alpha')).toBeInTheDocument();
+      expect(screen.getByTestId('video-player')).toBe(player);
+      expect(store.getState().zoom).toBe(zoom);
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      await waitFor(() => expect(url(history)).toBe(`/${FIRST}/${LOG}/10/20`));
+      expect(screen.getByTestId('video-player')).toBe(player);
+    });
+
+    test('a settings link opens without the drawer and closes to the dashboard', async () => {
+      window.innerWidth = 800;
+      const { history } = await renderApp(`/${FIRST}/settings`);
+      expect(await screen.findByText('Device settings')).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      await waitFor(() => expect(url(history)).toBe(`/${FIRST}`));
+      expect(history.length).toBe(1);
+    });
+
+    test('the uploads link opens the queue over settings', async () => {
+      const { history } = await renderApp(`/${FIRST}/settings/uploads`);
+      expect(await screen.findByText('Upload queue')).toBeVisible();
+      expect(screen.getByText('Device settings')).toBeInTheDocument();
+      act(() => { history.goBack(); }); // nothing to go back to in a fresh session: stays
+      expect(url(history)).toBe(`/${FIRST}/settings/uploads`);
+    });
+
+    test("settings for a device the account doesn't own are not shown", async () => {
+      await renderApp(`/${SHARED}/settings`);
+      expect(await screen.findByText("You don't have access to this device's settings.")).toBeVisible();
+    });
+
+    test('the add-device link does not start the camera until asked', async () => {
+      const getUserMedia = vi.fn(async () => { throw Object.assign(new Error('denied'), { name: 'NotAllowedError' }); });
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: { enumerateDevices: vi.fn(async () => [{ kind: 'videoinput' }]), getUserMedia },
+      });
+      const { history } = await renderApp('/devices/add', { selected: FIRST });
+      await waitFor(() => expect(url(history)).toBe(`/${FIRST}?modal=add-device`));
+      expect(await screen.findByText('Pair device')).toBeVisible();
+      const start = await screen.findByRole('button', { name: 'scan QR code with camera' });
+      expect(getUserMedia).not.toHaveBeenCalled();
+      fireEvent.click(start);
+      await waitFor(() => expect(getUserMedia).toHaveBeenCalled());
+      expect(await screen.findByText(/Camera access denied/)).toBeVisible();
+    });
+
+    test('a clip preview link for a changed clip says so instead of showing another version', async () => {
+      const clips = [{ filename: 'trip.mp4', requested_at: 222, status: 'ready', camera: 'fcamera.hevc', source_start_time: 0, source_end_time: 10, route: 'x' }];
+      await renderApp(`/${FIRST}/clips?clip=trip.mp4&clipRequestedAt=111`, { devices: online(), clips });
+      expect(await screen.findByText('This clip changed on the device since the link was made.')).toBeVisible();
+      expect(mocks.rpcs).not.toContain('getClipChunk');
+    });
+
+    test('a filename-only clip link resolves to the current version', async () => {
+      const clips = [{ filename: 'trip.mp4', requested_at: 222, status: 'ready', camera: 'fcamera.hevc', source_start_time: 0, source_end_time: 10, route: 'x' }];
+      const { history } = await renderApp(`/${FIRST}/clips?clip=trip.mp4`, { devices: online(), clips });
+      await waitFor(() => expect(history.location.search).toBe('?clip=trip.mp4&clipRequestedAt=222'));
+      expect(history.length).toBe(1);
+      expect(mocks.rpcs).not.toContain('createClip');
+      expect(mocks.rpcs).not.toContain('deleteClip');
+    });
+
+    test('a Prime cancel link for a device without Prime explains why, and submits nothing', async () => {
+      const { history } = await renderApp(`/${FIRST}/prime/cancel`);
+      expect(await screen.findByText('This device has no comma prime subscription.')).toBeVisible();
+      expect(mocks.requests.some(({ url: u }) => u.includes('/prime/cancel'))).toBe(false);
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      await waitFor(() => expect(url(history)).toBe(`/${FIRST}/prime`));
+    });
+
+    test('a dialog over a page that cannot take one is an invalid link', async () => {
+      await renderApp(`/${FIRST}/stream?modal=settings`);
+      expect(await screen.findByText('Page not found')).toBeVisible();
+    });
+  });
+
 });
 
 test('an authorized 401 clears private ownership and reloads the complete public URL', async()=>{

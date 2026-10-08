@@ -27,6 +27,7 @@ import DriveView from './DriveView';
 import NoDeviceUpsell from './DriveView/NoDeviceUpsell';
 import Referrals from './Referrals';
 import PageNotFound from './PageNotFound';
+import ModalHost from './ModalHost';
 
 const styles = (theme) => ({
   app: {
@@ -275,6 +276,7 @@ export class ExplorerApp extends Component {
               { this.renderPage(view, noDevicesUpsell, profile, dongleId, dispatch) }
             </div>
             <IosPwaPopup />
+            <ModalHost />
             <Modal open={ Boolean(pairLoading || pairError || pairDongleId) } onClose={ this.closePair }>
               <Paper className={classes.modal}>
                 <Typography variant="title">Pairing device</Typography>

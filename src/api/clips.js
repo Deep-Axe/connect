@@ -68,7 +68,17 @@ async function downloadClip(dongleId, filename, reportProgress, isCancelled) {
   return new Blob(chunks, { type: 'video/mp4' });
 }
 
-async function getClipBlob(dongleId, filename, requestedAt, onProgress) {
+export class ClipChangedError extends Error {
+  constructor() {
+    super('This clip changed on the device');
+    this.name = 'ClipChangedError';
+  }
+}
+
+// Chunks are addressed by filename only, so a version (requested_at) can only
+// be checked, not pinned: `isCurrentVersion` is asked before downloading and
+// again after, and bytes are cached under a version only once it still holds.
+async function getClipBlob(dongleId, filename, requestedAt, onProgress, isCurrentVersion) {
   const key = cacheKey(dongleId, filename, requestedAt);
   const stored = await clipStorage.getItem(key).catch(() => null);
   if (stored instanceof Blob) return stored;
@@ -76,11 +86,15 @@ async function getClipBlob(dongleId, filename, requestedAt, onProgress) {
   let entry = activeDownloads.get(key);
   if (!entry) {
     entry = { cancelled: false, listeners: new Set(), loaded: 0, total: 0 };
-    entry.promise = downloadClip(dongleId, filename, (loaded, total) => {
+    const verify = async () => {
+      if (isCurrentVersion && !(await isCurrentVersion())) throw new ClipChangedError();
+    };
+    entry.promise = verify().then(() => downloadClip(dongleId, filename, (loaded, total) => {
       entry.loaded = loaded;
       entry.total = total;
       for (const listener of entry.listeners) listener(loaded, total);
-    }, () => entry.cancelled).then(async (blob) => {
+    }, () => entry.cancelled)).then(async (blob) => {
+      await verify();
       if (activeDownloads.get(key) === entry) await clipStorage.setItem(key, blob).catch(() => {});
       return blob;
     }).finally(() => {
@@ -152,8 +166,8 @@ export const clipDevice = {
     return call(dongleId, 'deleteClip', params);
   },
 
-  async getClipUrl(dongleId, filename, requestedAt, onProgress) {
-    return URL.createObjectURL(await getClipBlob(dongleId, filename, requestedAt, onProgress));
+  async getClipUrl(dongleId, filename, requestedAt, onProgress, isCurrentVersion) {
+    return URL.createObjectURL(await getClipBlob(dongleId, filename, requestedAt, onProgress, isCurrentVersion));
   },
 
   hasClipBlob,
