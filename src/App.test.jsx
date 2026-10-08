@@ -399,6 +399,20 @@ describe('whole-app behavior', () => {
       expect(await screen.findByText(/Camera access denied/)).toBeVisible();
     });
 
+    test('opening add-device with its button starts the camera without asking again', async () => {
+      window.innerWidth = 1400; // the device list (with its add button) is in the permanent drawer
+      const getUserMedia = vi.fn(async () => { throw Object.assign(new Error('denied'), { name: 'NotAllowedError' }); });
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: { enumerateDevices: vi.fn(async () => [{ kind: 'videoinput' }]), getUserMedia },
+      });
+      const { history } = await renderApp(`/${FIRST}`);
+      fireEvent.click(await screen.findByRole('button', { name: 'add new device' }));
+      await waitFor(() => expect(url(history)).toBe(`/${FIRST}?modal=add-device`));
+      await waitFor(() => expect(getUserMedia).toHaveBeenCalled());
+      expect(screen.queryByRole('button', { name: 'scan QR code with camera' })).not.toBeInTheDocument();
+    });
+
     test('a clip preview link for a changed clip says so instead of showing another version', async () => {
       const clips = [{ filename: 'trip.mp4', requested_at: 222, status: 'ready', camera: 'fcamera.hevc', source_start_time: 0, source_end_time: 10, route: 'x' }];
       await renderApp(`/${FIRST}/clips?clip=trip.mp4&clipRequestedAt=111`, { devices: online(), clips });
