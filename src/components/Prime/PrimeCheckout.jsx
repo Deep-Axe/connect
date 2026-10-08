@@ -1,4 +1,3 @@
-import { selectSubscribeInfo } from '../../resources/selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import dayjs from 'dayjs';
@@ -15,6 +14,7 @@ import { CheckIcon, ErrorOutline, InfoOutline, KeyboardBackspaceIcon } from '../
 import CommacareIcon from '../../icons/commacare.png';
 import { COMMACARE_URL } from '../CommacareBadge';
 import { selectDevice } from '../../selectors';
+import { selectSubscribeInfo } from '../../resources/selectors';
 
 const styles = () => ({
   linkHighlight: {

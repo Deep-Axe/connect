@@ -1,4 +1,3 @@
-import { selectCurrentRoute } from './selectors';
 import * as Sentry from '@sentry/react';
 
 import MyCommaAuth from '@commaai/my-comma-auth';
@@ -6,7 +5,7 @@ import MyCommaAuth from '@commaai/my-comma-auth';
 import * as Types from './actions/types';
 import { anonymizedPath } from './routing/codec';
 import { deviceIsOnline } from './utils';
-import { selectDevice, selectDevices } from './selectors';
+import { selectCurrentRoute, selectDevice, selectDevices } from './selectors';
 
 function getPageViewEventLocation(location) {
   return location ? anonymizedPath(location) : '';

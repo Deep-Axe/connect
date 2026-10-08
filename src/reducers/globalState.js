@@ -76,6 +76,9 @@ function withRoutes(state, routes) {
   return { ...state, entities: { ...state.entities, routes } };
 }
 
+// Loaded for one route version (maxqlog): dropped when the version changes.
+const VERSIONED_ROUTE_FIELDS = ['events', 'videoStartOffset', 'driveCoords', 'eventsVersion', 'driveCoordsVersion'];
+
 // Merge route payloads into their entities, keeping what the payload doesn't
 // carry (events, locations, drive coordinates).
 function mergeRoutes(routes, payloads, requestId = 0, fetchedAt = 0, details = {}) {
@@ -85,10 +88,14 @@ function mergeRoutes(routes, payloads, requestId = 0, fetchedAt = 0, details = {
     if (Math.max(previous?.metadataRequestId ?? 0, details[route.fullname]?.requestId ?? 0) > requestId) return;
     const kept = { ...previous };
     if (previous && previous.maxqlog !== route.maxqlog) {
-      for (const field of ['events', 'videoStartOffset', 'driveCoords', 'eventsVersion', 'driveCoordsVersion']) delete kept[field];
+      for (const field of VERSIONED_ROUTE_FIELDS) delete kept[field];
     }
-    if (previous && (previous.start_lat !== route.start_lat || previous.start_lng !== route.start_lng)) delete kept.startLocation;
-    if (previous && (previous.end_lat !== route.end_lat || previous.end_lng !== route.end_lng)) delete kept.endLocation;
+    if (previous && (previous.start_lat !== route.start_lat || previous.start_lng !== route.start_lng)) {
+      delete kept.startLocation;
+    }
+    if (previous && (previous.end_lat !== route.end_lat || previous.end_lng !== route.end_lng)) {
+      delete kept.endLocation;
+    }
     merged[route.fullname] = { ...kept, ...route, metadataRequestId: requestId, metadataFetchedAt: fetchedAt };
   });
   return merged;
@@ -154,7 +161,10 @@ function applySelectedDrive(state, previousBase, base, at) {
 
   if (!zoom) {
     state.loop = null;
-    if (!sameDrive) { state.offset = null; state.isBufferingVideo = true; }
+    if (!sameDrive) {
+      state.offset = null;
+      state.isBufferingVideo = true;
+    }
   } else {
     // the loop is exactly the selection, whether it narrowed or widened
     state.loop = { startTime: zoom.start, duration: zoom.end - zoom.start };
@@ -162,7 +172,10 @@ function applySelectedDrive(state, previousBase, base, at) {
       // keep playing from the same place, re-anchored at this commit
       state.offset = position;
       state.startTime = at;
-      if (remembered) { state.desiredPlaySpeed = remembered.speed; state.isBufferingVideo = true; }
+      if (remembered) {
+        state.desiredPlaySpeed = remembered.speed;
+        state.isBufferingVideo = true;
+      }
     } else {
       state.desiredPlaySpeed = 1;
       state.isBufferingVideo = true;
@@ -184,7 +197,11 @@ function clearPrivateState(state) {
     queries: { routeLists: {}, routeDetails: {}, subscriptions: {}, files: {} },
     lists: {},
     runtime: { routes: {} },
-    zoom: null, loop: null, offset: null, desiredPlaySpeed: 0, isBufferingVideo: true,
+    zoom: null,
+    loop: null,
+    offset: null,
+    desiredPlaySpeed: 0,
+    isBufferingVideo: true,
     primeStripeResult: null,
     uploadQueues: {},
   };
@@ -197,8 +214,10 @@ function adoptCurrentRoute(state, previousRoute, at) {
   const route = selectCurrentRoute(state);
   if (!drive || !route || (previousRoute && previousRoute.duration === route.duration)) return state;
   const zoom = effectiveZoom(drive, route);
-  if (!zoom) { state.zoom = null; state.loop = null; }
-  else {
+  if (!zoom) {
+    state.zoom = null;
+    state.loop = null;
+  } else {
     const position = state.offset == null ? null : offsetAt(state, at);
     state.zoom = zoom;
     state.loop = { startTime: zoom.start, duration: zoom.end - zoom.start };
@@ -275,7 +294,9 @@ export default function reducer(_state, action) {
       if (staleRouteVersion(state, action)) break;
       const firstFrame = action.events.find((ev) => ev.type === 'event' && ev.data.event_type === 'first_road_camera_frame');
       const videoStartOffset = firstFrame ? firstFrame.route_offset_millis : null;
-      state = updateRouteEntity(state, action.fullname, (route) => ({ ...route, events: action.events, eventsVersion: action.maxqlog, videoStartOffset }));
+      state = updateRouteEntity(state, action.fullname, (route) => ({
+        ...route, events: action.events, eventsVersion: action.maxqlog, videoStartOffset,
+      }));
       break;
     }
     case Types.ACTION_UPDATE_ROUTE_LOCATION:
@@ -283,7 +304,9 @@ export default function reducer(_state, action) {
       break;
     case Types.ACTION_UPDATE_SHARED_DEVICE:
       // a device the account doesn't list (shared with the user)
-      state = updateDeviceEntity(state, action.dongleId, () => ({ ...action.device, fetched_at: action.fetchedAt }));
+      state = updateDeviceEntity(state, action.dongleId, (previous) => ({
+        ...previous, ...action.device, fetched_at: action.fetchedAt,
+      }));
       break;
     case Types.ACTION_UPDATE_DEVICE_ONLINE:
       state = updateDeviceEntity(state, action.dongleId, (previous) => ({
@@ -308,7 +331,8 @@ export default function reducer(_state, action) {
     case Types.ACTION_ROUTE_LIST_LOADED: {
       // one list query's answer: written to its own key, never selecting
       const previousRoute = selectCurrentRoute(state);
-      state = withRoutes(state, mergeRoutes(state.entities.routes, action.routes, action.requestId, action.fetchedAt, state.queries.routeDetails));
+      const { routeDetails } = state.queries;
+      state = withRoutes(state, mergeRoutes(state.entities.routes, action.routes, action.requestId, action.fetchedAt, routeDetails));
       const details = { ...state.queries.routeDetails };
       for (const route of action.routes) {
         const entity = state.entities.routes[route.fullname];
@@ -357,7 +381,11 @@ export default function reducer(_state, action) {
         ...state.queries,
         routeDetails: {
           ...state.queries.routeDetails,
-          [action.fullname]: { status: action.route ? 'loaded' : 'missing', fetchedAt: action.fetchedAt, requestId: action.requestId },
+          [action.fullname]: {
+            status: action.route ? 'loaded' : 'missing',
+            fetchedAt: action.fetchedAt,
+            requestId: action.requestId,
+          },
         },
       };
       state = adoptCurrentRoute(state, previousRoute, action.fetchedAt);

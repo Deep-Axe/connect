@@ -1,18 +1,15 @@
-import { selectFiles } from '../resources/selectors';
 // URL in → state out, through the real store, reducers and middleware. The
 // memory history is wired to the store exactly as ConnectedRouter does it:
 // the initial location is dispatched once, then every history change.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory } from 'history';
 import { LOCATION_CHANGE } from 'connected-react-router';
-
-// the action ConnectedRouter dispatches for every location
-const onLocationChanged = (location, action) => ({ type: LOCATION_CHANGE, payload: { location, action } });
+import localforage from 'localforage';
 
 import { createInitialState } from '../initialState';
 import { createAppStore } from '../store';
-import { selectDevice, selectDevices, selectCurrentRoute, selectRoutes } from '../selectors';
-import localforage from 'localforage';
+import { selectCurrentRoute, selectDevice, selectDevices, selectRoutes } from '../selectors';
+import { selectFiles } from '../resources/selectors';
 import { hardNavigate } from '../utils/navigation';
 import { webrtcConnectionManager } from '../utils/webrtc';
 import { bootstrapSession, endSession } from '../actions/session';
@@ -21,13 +18,28 @@ import { currentOffset } from '../timeline';
 import { pollUploadQueue, stopPollingUploadQueue, updateFiles, uploadQueuePollers } from '../actions/files';
 import * as Types from '../actions/types';
 import {
-  selectNavLocation, selectSelectedRouteId, selectSelectedRouteMissing, selectSelectionOutOfRange, selectView,
+  selectNavLocation,
+  selectSelectedRouteId,
+  selectSelectedRouteMissing,
+  selectSelectionOutOfRange,
+  selectView,
 } from './selectors';
 import { checkRoutesData, leaveForExternalUrl, renameDevice, updateDevice, updateDevices } from '../actions';
+import { billing } from '../api';
 import { MODALS, modalOf } from './codec';
 import {
-  closeModal, driveBack, leavePage, openModal, openedInteractively, toDashboard, toDriveRange, toPrime,
+  closeModal,
+  driveBack,
+  leavePage,
+  openModal,
+  openedInteractively,
+  toDashboard,
+  toDriveRange,
+  toPrime,
 } from './navigate';
+
+// the action ConnectedRouter dispatches for every location
+const onLocationChanged = (location, action) => ({ type: LOCATION_CHANGE, payload: { location, action } });
 
 const api = vi.hoisted(() => ({
   authenticated: true,
@@ -41,7 +53,8 @@ const api = vi.hoisted(() => ({
 
 vi.mock('../api/backend', () => ({
   activeBackendType: () => api.backendType,
-  selectBackendType: (pathname) => (pathname.startsWith('/deadbeefdeadbeef') || pathname.startsWith('/demo') ? 'demo' : 'real'),
+  selectBackendType: (pathname) =>
+    pathname.startsWith('/deadbeefdeadbeef') || pathname.startsWith('/demo') ? 'demo' : 'real',
   api: {
     auth: { isAuthenticated: () => api.authenticated, logOut: vi.fn() },
     account: { getProfile: api.getProfile },
@@ -50,7 +63,9 @@ vi.mock('../api/backend', () => ({
   },
 }));
 vi.mock('../api', () => ({
-  request: {configure:vi.fn()}, athena: {configure:vi.fn()}, billing: {configure:vi.fn(), getSubscribeInfo: vi.fn(async () => null), getSubscription: vi.fn(async () => null) },
+  request: { configure: vi.fn() },
+  athena: { configure: vi.fn() },
+  billing: { configure: vi.fn(), getSubscribeInfo: vi.fn(async () => null), getSubscription: vi.fn(async () => null) },
 }));
 vi.mock('../utils/webrtc', () => {
   // tracks which device's stream page holds the connection, like the real one
@@ -59,8 +74,12 @@ vi.mock('../utils/webrtc', () => {
     disconnect: vi.fn(),
     reconnect: vi.fn(),
     deviceChanged: vi.fn(),
-    enterStream: vi.fn((dongleId) => { manager.streamDongleId = dongleId; }),
-    leaveStream: vi.fn((dongleId) => { if (manager.streamDongleId === dongleId) manager.streamDongleId = null; }),
+    enterStream: vi.fn((dongleId) => {
+      manager.streamDongleId = dongleId;
+    }),
+    leaveStream: vi.fn((dongleId) => {
+      if (manager.streamDongleId === dongleId) manager.streamDongleId = null;
+    }),
   };
   return { webrtcConnectionManager: manager };
 });
@@ -68,8 +87,27 @@ vi.mock('../utils/navigation', () => ({ hardNavigate: vi.fn() }));
 vi.mock('localforage', () => {
   const items = new Map();
   const clips = new Map();
-  const clipStorage = { getItem: async key => clips.get(key), setItem: async (key, value) => clips.set(key, value), clear: async () => clips.clear(), keys: async () => [...clips.keys()], removeItem: async key => clips.delete(key) };
-  return { default: { createInstance: () => clipStorage, items, getItem: async (k) => items.get(k) ?? null, setItem: async (k, v) => { items.set(k, v); return v; }, removeItem: async (k) => { items.delete(k); } } };
+  const clipStorage = {
+    getItem: async (key) => clips.get(key),
+    setItem: async (key, value) => clips.set(key, value),
+    clear: async () => clips.clear(),
+    keys: async () => [...clips.keys()],
+    removeItem: async (key) => clips.delete(key),
+  };
+  return {
+    default: {
+      createInstance: () => clipStorage,
+      items,
+      getItem: async (k) => items.get(k) ?? null,
+      setItem: async (k, v) => {
+        items.set(k, v);
+        return v;
+      },
+      removeItem: async (k) => {
+        items.delete(k);
+      },
+    },
+  };
 });
 
 const A = 'aaaaaaaaaaaaaaaa';
@@ -79,9 +117,14 @@ const OTHER_LOG = '2026-08-06--13-00-00';
 
 function route(dongleId, logId) {
   return {
-    fullname: `${dongleId}|${logId}`, url: 'https://routes.example.com', create_time: 1,
-    segment_start_times: [1000], segment_end_times: [61000], segment_numbers: [0],
-    start_time_utc_millis: 1000, end_time_utc_millis: 61000,
+    fullname: `${dongleId}|${logId}`,
+    url: 'https://routes.example.com',
+    create_time: 1,
+    segment_start_times: [1000],
+    segment_end_times: [61000],
+    segment_numbers: [0],
+    start_time_utc_millis: 1000,
+    end_time_utc_millis: 61000,
   };
 }
 
@@ -105,9 +148,9 @@ beforeEach(() => {
     { dongle_id: B, is_owner: true, prime: false },
   ]);
   api.fetchDevice.mockResolvedValue({ last_athena_ping: 0 });
-  api.getRoutesSegments.mockImplementation(async (dongleId, _s, _e, _l, routeStr) => (
-    routeStr ? [route(dongleId, routeStr.split('|')[1])] : [route(dongleId, LOG)]
-  ));
+  api.getRoutesSegments.mockImplementation(async (dongleId, _s, _e, _l, routeStr) =>
+    routeStr ? [route(dongleId, routeStr.split('|')[1])] : [route(dongleId, LOG)],
+  );
 });
 
 afterEach(() => {
@@ -169,9 +212,9 @@ describe('one URL → state path', () => {
   });
 
   it('plays a selection rounded past the end of the drive to the end, without rewriting the URL', async () => {
-    api.getRoutesSegments.mockImplementation(async (dongleId) => [{
-      ...route(dongleId, LOG), segment_end_times: [61123], end_time_utc_millis: 61123,
-    }]);
+    api.getRoutesSegments.mockImplementation(async (dongleId) => [
+      { ...route(dongleId, LOG), segment_end_times: [61123], end_time_utc_millis: 61123 },
+    ]);
     const { history, store } = await start(`/${A}/${LOG}`);
     expect(selectCurrentRoute(store.getState()).duration).toBe(60123);
     store.dispatch(toDriveRange(A, LOG, 30000, 60123));
@@ -249,7 +292,9 @@ describe('history regressions', () => {
     let resolveLookup;
     api.getRoutesSegments.mockImplementation((dongleId, s, e, limit, routeStr) => {
       if (routeStr || limit) return Promise.resolve([route(dongleId, LOG)]);
-      return new Promise((resolve) => { resolveLookup = resolve; }); // the legacy lookup
+      return new Promise((resolve) => {
+        resolveLookup = resolve;
+      }); // the legacy lookup
     });
     const { history } = await start(`/${A}/1000/61000`);
     history.push(`/${B}`);
@@ -313,9 +358,12 @@ describe('history regressions', () => {
 describe('request identity', () => {
   it('a slow response for drive A cannot select itself after switching to drive B', async () => {
     const pending = {};
-    api.getRoutesSegments.mockImplementation((dongleId, s, e, l, routeStr) => new Promise((resolve) => {
-      pending[routeStr] = () => resolve([route(dongleId, routeStr.split('|')[1])]);
-    }));
+    api.getRoutesSegments.mockImplementation(
+      (dongleId, s, e, l, routeStr) =>
+        new Promise((resolve) => {
+          pending[routeStr] = () => resolve([route(dongleId, routeStr.split('|')[1])]);
+        }),
+    );
     const { history, store } = await start(`/${A}/${LOG}`);
     history.push(`/${A}/${OTHER_LOG}`);
     await settle();
@@ -391,7 +439,8 @@ describe('navigation and session transitions', () => {
     const { history } = await start(`/${A}`);
     history.push(`/${A}/`);
     history.push(`/${B}`);
-    await settle(); await settle();
+    await settle();
+    await settle();
     expect(history.location.pathname).toBe(`/${B}`);
   });
 
@@ -399,7 +448,8 @@ describe('navigation and session transitions', () => {
     const { history } = await start(`/${A}`);
     history.push(`/${A}?r=${encodeURIComponent(`/${B}`)}`); // canonical, so its effects are queued
     history.push(`/${A}/${LOG}`);
-    await settle(); await settle();
+    await settle();
+    await settle();
     expect(history.location.pathname).toBe(`/${A}/${LOG}`);
   });
 
@@ -417,7 +467,8 @@ describe('navigation and session transitions', () => {
     expect(selectCurrentRoute(store.getState())?.log_id).toBe(LOG);
     api.getRoutesSegments.mockClear();
     history.push(`/${A}/${OTHER_LOG}`);
-    await settle(); await settle();
+    await settle();
+    await settle();
     expect(api.getRoutesSegments).toHaveBeenCalledWith(A, undefined, undefined, undefined, `${A}|${OTHER_LOG}`);
     expect(selectCurrentRoute(store.getState())?.log_id).toBe(OTHER_LOG);
     expect(selectRoutes(store.getState())).toBe(list);
@@ -425,10 +476,13 @@ describe('navigation and session transitions', () => {
   });
 
   it('a drive that does not exist is reported once, without retrying', async () => {
-    api.getRoutesSegments.mockImplementation(async (dongleId, _s, _e, _l, routeStr) => (routeStr ? [] : [route(dongleId, LOG)]));
+    api.getRoutesSegments.mockImplementation(async (dongleId, _s, _e, _l, routeStr) =>
+      routeStr ? [] : [route(dongleId, LOG)],
+    );
     const { history, store } = await start(`/${A}`);
     history.push(`/${A}/${OTHER_LOG}`);
-    await settle(); await settle();
+    await settle();
+    await settle();
     expect(selectSelectedRouteMissing(store.getState())).toBe(true);
     const calls = api.getRoutesSegments.mock.calls.length;
     store.dispatch(checkRoutesData());
@@ -438,14 +492,20 @@ describe('navigation and session transitions', () => {
 
   it('A → B → A reuses the identical list request still in flight', async () => {
     const answers = [];
-    api.getRoutesSegments.mockImplementation((dongleId) => new Promise((resolve) => answers.push({ dongleId, resolve })));
+    api.getRoutesSegments.mockImplementation(
+      (dongleId) => new Promise((resolve) => answers.push({ dongleId, resolve })),
+    );
     const { history, store } = await start(`/${A}`);
-    history.push(`/${B}`); await settle();
-    history.push(`/${A}`); await settle();
+    history.push(`/${B}`);
+    await settle();
+    history.push(`/${A}`);
+    await settle();
     expect(answers).toHaveLength(2);
-    answers[0].resolve([route(A, LOG)]); await settle();
+    answers[0].resolve([route(A, LOG)]);
+    await settle();
     expect(selectRoutes(store.getState()).map((r) => r.log_id)).toEqual([LOG]);
-    answers[1].resolve([route(B, OTHER_LOG)]); await settle();
+    answers[1].resolve([route(B, OTHER_LOG)]);
+    await settle();
     expect(selectRoutes(store.getState()).map((r) => r.log_id)).toEqual([LOG]);
   });
 
@@ -454,10 +514,13 @@ describe('navigation and session transitions', () => {
     const answers = [];
     api.getRoutesSegments.mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
     const { history, store } = await start(`/${A}/${LOG}`);
-    history.push(`/${B}/${LOG}`); await settle();
-    history.push(`/${A}/${LOG}`); await settle();
+    history.push(`/${B}/${LOG}`);
+    await settle();
+    history.push(`/${A}/${LOG}`);
+    await settle();
     expect(answers).toHaveLength(2);
-    answers[0]([]); await settle();
+    answers[0]([]);
+    await settle();
     expect(hardNavigate).not.toHaveBeenCalled();
     expect(selectSelectedRouteMissing(store.getState())).toBe(true);
   });
@@ -465,13 +528,24 @@ describe('navigation and session transitions', () => {
   it('ending the session clears private state and ignores late results from it', async () => {
     let finishProfile;
     let finishDevices;
-    api.getProfile.mockImplementation(() => new Promise((resolve) => { finishProfile = resolve; }));
-    api.listDevices.mockImplementation(() => new Promise((resolve) => { finishDevices = resolve; }));
+    api.getProfile.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishProfile = resolve;
+        }),
+    );
+    api.listDevices.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishDevices = resolve;
+        }),
+    );
     const { store } = await start(`/${A}`);
     store.dispatch(endSession());
     finishProfile({ id: 'old-user' });
     finishDevices([{ dongle_id: A, is_owner: true }]);
-    await settle(); await settle();
+    await settle();
+    await settle();
     expect(store.getState().profile).toBeNull();
     expect(selectDevices(store.getState())).toBeNull();
 
@@ -502,7 +576,8 @@ describe('navigation and session transitions', () => {
   it('a pair token arriving by URL later in the session is stored and handed over', async () => {
     const { history, store } = await start(`/${A}`);
     history.push(`/${A}?pair=token-1`);
-    await settle(); await settle();
+    await settle();
+    await settle();
     expect(localforage.items.get('pairToken')).toBe('token-1');
     expect(store.getState().pairRequests).toBe(1);
     expect(history.location.search).toBe('');
@@ -555,7 +630,8 @@ describe('same-page navigation ownership', () => {
     const { history } = await start(`/${A}`);
     history.push(`/${A}/`);
     history.push(`/${A}#new`);
-    await settle(); await settle();
+    await settle();
+    await settle();
     expect(history.location.hash).toBe('#new');
   });
 
@@ -564,7 +640,8 @@ describe('same-page navigation ownership', () => {
     api.getRoutesSegments.mockClear();
     history.push(`/${A}/`);
     history.push(`/${A}#new`);
-    await settle(); await settle();
+    await settle();
+    await settle();
     expect(store.getState().dongleId).toBe(A);
     expect(api.getRoutesSegments).toHaveBeenCalled();
   });
@@ -574,7 +651,8 @@ describe('same-page navigation ownership', () => {
     webrtcConnectionManager.leaveStream.mockClear();
     history.push(`/${A}`);
     history.push(`/${A}/${LOG}`);
-    await settle(); await settle();
+    await settle();
+    await settle();
     expect(webrtcConnectionManager.leaveStream).toHaveBeenCalledWith(A, expect.anything());
   });
 
@@ -584,21 +662,27 @@ describe('same-page navigation ownership', () => {
       history.push(`/${A}?pair=${token}`);
       // one navigation at a time, on purpose
       // eslint-disable-next-line no-await-in-loop
-      await settle(); await settle();
+      await settle().then(settle);
     }
     expect(store.getState().pairRequests).toBe(2);
   });
 
   it('a late rejected bootstrap cannot end a newer session', async () => {
     let rejectOld;
-    api.getProfile.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectOld = reject; }));
+    api.getProfile.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectOld = reject;
+        }),
+    );
     const { store } = await start(`/${A}`);
     store.dispatch(endSession());
     api.getProfile.mockResolvedValue({ id: 'new-user' });
     await store.dispatch(bootstrapSession());
     expect(store.getState().profile.id).toBe('new-user');
     rejectOld({ resp: { status: 401 } });
-    await settle(); await settle();
+    await settle();
+    await settle();
     expect(store.getState().profile?.id).toBe('new-user');
     expect(store.getState().sessionEpoch).toBe(1);
   });
@@ -615,17 +699,24 @@ describe('same-page navigation ownership', () => {
       store.dispatch(toDriveRange(A, LOG, 10000, 20000));
       await settle();
       expect(currentOffset(store.getState())).toBe(15000);
-    } finally { now.mockRestore(); }
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('a forced same-query refresh wins even when the old response arrives first', async () => {
     const answers = [];
-    api.getRoutesSegments.mockImplementation((dongleId) => new Promise((resolve) => answers.push({ dongleId, resolve })));
+    api.getRoutesSegments.mockImplementation(
+      (dongleId) => new Promise((resolve) => answers.push({ dongleId, resolve })),
+    );
     const { store } = await start(`/${A}`);
-    store.dispatch(checkRoutesData({ force: true })); await settle();
-    answers[0].resolve([route(A, LOG)]); await settle();
+    store.dispatch(checkRoutesData({ force: true }));
+    await settle();
+    answers[0].resolve([route(A, LOG)]);
+    await settle();
     expect(selectRoutes(store.getState())).toBeNull();
-    answers[1].resolve([route(A, OTHER_LOG)]); await settle();
+    answers[1].resolve([route(A, OTHER_LOG)]);
+    await settle();
     expect(selectRoutes(store.getState()).map((r) => r.log_id)).toEqual([OTHER_LOG]);
   });
 });
@@ -729,7 +820,9 @@ describe('dialog history and polling', () => {
   const url = (history) => `${history.location.pathname}${history.location.search}${history.location.hash}`;
 
   it('a dialog opened from a page that cannot host it opens on its direct link', async () => {
-    api.getRoutesSegments.mockImplementation(async (dongleId, s, e, l, routeStr) => (routeStr || l ? [route(dongleId, LOG)] : []));
+    api.getRoutesSegments.mockImplementation(async (dongleId, s, e, l, routeStr) =>
+      routeStr || l ? [route(dongleId, LOG)] : [],
+    );
     const legacy = await start(`/${A}/1000/61000`); // lookup came back empty: stays on the legacy page
     await settle();
     expect(selectView(legacy.store.getState())).toBe('legacyRange');
@@ -789,7 +882,12 @@ describe('dialog history and polling', () => {
 describe('dialog results belong to their session and navigation', () => {
   it('a rename answered after logout does not reinstall the device', async () => {
     let answer;
-    api.setDeviceAlias.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    api.setDeviceAlias.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
     const { store } = await start(`/${A}`);
     const rename = store.dispatch(renameDevice(A, 'Renamed'));
     store.dispatch(endSession());
@@ -801,7 +899,14 @@ describe('dialog results belong to their session and navigation', () => {
   it('a Stripe redirect answered after the user left the page does not leave the app', async () => {
     let answer;
     const { history, store } = await start(`/${A}/prime`);
-    const leaving = store.dispatch(leaveForExternalUrl(() => new Promise((resolve) => { answer = resolve; })));
+    const leaving = store.dispatch(
+      leaveForExternalUrl(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      ),
+    );
     history.push(`/${A}`);
     await settle();
     answer('https://billing.stripe.com/session');
@@ -814,7 +919,14 @@ describe('adversarial task destination ownership', () => {
   it('an external task completion cannot leave after another dialog became current', async () => {
     let answer;
     const { store } = await start(`/${A}/prime`);
-    const pending = store.dispatch(leaveForExternalUrl(() => new Promise(resolve => { answer = resolve; })));
+    const pending = store.dispatch(
+      leaveForExternalUrl(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      ),
+    );
     store.dispatch(openModal(modalOf(MODALS.SETTINGS, { dongleId: A })));
     await settle();
     answer('https://billing.stripe.com/old-task');
@@ -861,6 +973,37 @@ describe('devices are stored once, by id', () => {
     // only its online status is refreshed (deliberately, on selection)
     expect(selectDevice(store.getState())).toMatchObject({ dongle_id: A, rpc: { not_car: true } });
     expect(api.listDevices).toHaveBeenCalledTimes(1);
+  });
+
+  it('a device paired after startup is treated as listed, not shared', async () => {
+    const PAIRED = 'cccccccccccccccc';
+    const { history, store } = await start(`/${A}`);
+    store.dispatch(
+      updateDevices([
+        { dongle_id: A, is_owner: true, prime: false },
+        { dongle_id: PAIRED, alias: 'New', is_owner: true, prime: true },
+      ]),
+    );
+    api.fetchDevice.mockResolvedValue({ last_athena_ping: 5 });
+    history.push(`/${PAIRED}`);
+    await settle();
+    await settle();
+    expect(billing.getSubscription).toHaveBeenCalledWith(PAIRED);
+    expect(selectDevice(store.getState())).toMatchObject({
+      dongle_id: PAIRED,
+      alias: 'New',
+      is_owner: true,
+      shared: false,
+      last_athena_ping: 5,
+    });
+  });
+
+  it('a fetched shared device keeps what was already known about it', async () => {
+    const SHARED = 'cccccccccccccccc';
+    const { store } = await start(`/${A}`);
+    store.dispatch({ type: Types.ACTION_UPDATE_DEVICE_RPC, dongleId: SHARED, fields: { not_car: true } });
+    store.dispatch({ type: Types.ACTION_UPDATE_SHARED_DEVICE, dongleId: SHARED, device: { alias: 'Shared' } });
+    expect(store.getState().entities.devices[SHARED]).toMatchObject({ alias: 'Shared', rpc: { not_car: true } });
   });
 
   it('a shared device not in the list is a placeholder until fetched, then stored', async () => {

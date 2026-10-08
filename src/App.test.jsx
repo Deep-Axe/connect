@@ -9,7 +9,7 @@ import './components/explorer';
 import './components/anonymous';
 import { Provider } from 'react-redux';
 import AccountMenu from './components/AppHeader/AccountMenu';
-import MyCommaAuth, {storage as AuthStorage} from '@commaai/my-comma-auth';
+import MyCommaAuth, { storage as AuthStorage } from '@commaai/my-comma-auth';
 import { request as Request } from './api';
 import { endSession } from './actions/session';
 import { createInitialState } from './initialState';
@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({ authenticated: true, options: {}, requests: []
 
 vi.mock('@commaai/my-comma-auth', () => ({
   default: {
-    init: vi.fn(async () => mocks.authenticated ? 'test-token' : null),
+    init: vi.fn(async () => (mocks.authenticated ? 'test-token' : null)),
     isAuthenticated: vi.fn(() => mocks.authenticated),
     logOut: vi.fn(),
   },
@@ -60,7 +60,11 @@ vi.mock('react-player/file', () => ({
       getDuration: () => 60,
       getInternalPlayer: () => ({
         buffered: { end: () => 60, length: 1, start: () => 0 },
-        pause: vi.fn(), paused: true, play: vi.fn(async () => undefined), playbackRate: 1, readyState: 4,
+        pause: vi.fn(),
+        paused: true,
+        play: vi.fn(async () => undefined),
+        playbackRate: 1,
+        readyState: 4,
       }),
       seekTo: vi.fn(),
     }));
@@ -73,15 +77,28 @@ vi.mock('localforage', () => {
     const items = new Map();
     return {
       getItem: async (key) => (items.has(key) ? items.get(key) : null),
-      setItem: async (key, value) => { items.set(key, value); return value; },
-      removeItem: async (key) => { items.delete(key); },
+      setItem: async (key, value) => {
+        items.set(key, value);
+        return value;
+      },
+      removeItem: async (key) => {
+        items.delete(key);
+      },
       keys: async () => [...items.keys()],
-      clear: async () => { items.clear(); },
+      clear: async () => {
+        items.clear();
+      },
     };
   };
   return { default: { ...store(), createInstance: store } };
 });
-vi.mock('barcode-detector/ponyfill', () => ({ BarcodeDetector: class { detect() { return []; } } }));
+vi.mock('barcode-detector/ponyfill', () => ({
+  BarcodeDetector: class {
+    detect() {
+      return [];
+    }
+  },
+}));
 
 const FIRST = 'aaaaaaaaaaaaaaaa';
 const SECOND = 'bbbbbbbbbbbbbbbb';
@@ -98,17 +115,27 @@ const devices = [
 function makeRoute(dongleId, logId = RECENT_LOG) {
   const start = logId === LOG ? START : START + 3_600_000;
   return {
-    create_time: start, distance: 1, dongle_id: dongleId, end_time_utc_millis: start + 60_000,
-    events: [], fullname: `${dongleId}|${logId}`, maxqlog: 0,
-    segment_end_times: [start + 60_000], segment_numbers: [0], segment_start_times: [start],
+    create_time: start,
+    distance: 1,
+    dongle_id: dongleId,
+    end_time_utc_millis: start + 60_000,
+    events: [],
+    fullname: `${dongleId}|${logId}`,
+    maxqlog: 0,
+    segment_end_times: [start + 60_000],
+    segment_numbers: [0],
+    segment_start_times: [start],
     startLocation: { place: logId === LOG ? 'Mock route start' : 'Mock recent route start', details: 'Start details' },
-    endLocation: { place: 'Mock route end', details: 'End details' }, start_time_utc_millis: start,
+    endLocation: { place: 'Mock route end', details: 'End details' },
+    start_time_utc_millis: start,
     url: 'https://routes.example.com',
   };
 }
 
 function json(body, status = 200) {
-  return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
+  return Promise.resolve(
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }),
+  );
 }
 
 async function mockFetch(input, init = {}) {
@@ -117,9 +144,11 @@ async function mockFetch(input, init = {}) {
   if (url.hostname === 'athena.comma.ai') {
     const rpc = init.body ? JSON.parse(init.body) : {};
     mocks.rpcs.push(rpc.method);
-    if (rpc.method === 'getClipState') return json({ jsonrpc: '2.0', id: rpc.id, result: { clips: mocks.options.clips ?? [] } });
+    if (rpc.method === 'getClipState')
+      return json({ jsonrpc: '2.0', id: rpc.id, result: { clips: mocks.options.clips ?? [] } });
     if (rpc.method === 'getVersion') return json({ jsonrpc: '2.0', id: rpc.id, result: { commit_date: 1 } });
-    if (rpc.method === 'listUploadQueue') return json({ jsonrpc: '2.0', id: rpc.id, result: mocks.options.uploadQueue ?? [] });
+    if (rpc.method === 'listUploadQueue')
+      return json({ jsonrpc: '2.0', id: rpc.id, result: mocks.options.uploadQueue ?? [] });
     return json({ jsonrpc: '2.0', id: rpc.id ?? 0, result: {} });
   }
   const options = mocks.options;
@@ -127,23 +156,32 @@ async function mockFetch(input, init = {}) {
   if (url.pathname === '/v1/me/turn') return json(null);
   if (url.pathname === '/v1/me/') return json({ id: 'test-user', superuser: false });
   if (url.pathname === '/v1/me/devices/') return json(deviceList);
-  if (url.pathname === '/v1/referrals') return json(options.referrals ?? {
-    code: 'ABC1234',
-    cash: { available: 50, claimed: 50, pending: 50 },
-    referrals: [
-      { ordered_at: 1_777_000_000, status: 'available' },
-      { ordered_at: 1_778_000_000, status: 'pending' },
-      { ordered_at: 1_779_000_000, status: 'claimed' },
-    ],
-  });
+  if (url.pathname === '/v1/referrals')
+    return json(
+      options.referrals ?? {
+        code: 'ABC1234',
+        cash: { available: 50, claimed: 50, pending: 50 },
+        referrals: [
+          { ordered_at: 1_777_000_000, status: 'available' },
+          { ordered_at: 1_778_000_000, status: 'pending' },
+          { ordered_at: 1_779_000_000, status: 'claimed' },
+        ],
+      },
+    );
   const segments = url.pathname.match(/^\/v1\/devices\/([a-f0-9]{16})\/routes_segments$/);
   if (segments) {
     const dongleId = segments[1];
     if (options.failedRoutes && url.searchParams.has('start')) return json({}, 500);
     if (options.emptyRoutes) return json([]);
     const routeStr = url.searchParams.get('route_str');
-    if (routeStr) return json([LOG, RECENT_LOG].some((log) => routeStr.endsWith(`|${log}`)) ? [makeRoute(dongleId, routeStr.split('|')[1])] : []);
-    if (window.location.pathname.includes(`/${START}/`) || url.searchParams.get('start') === String(START)) return json([makeRoute(dongleId, LOG)]);
+    if (routeStr)
+      return json(
+        [LOG, RECENT_LOG].some((log) => routeStr.endsWith(`|${log}`))
+          ? [makeRoute(dongleId, routeStr.split('|')[1])]
+          : [],
+      );
+    if (window.location.pathname.includes(`/${START}/`) || url.searchParams.get('start') === String(START))
+      return json([makeRoute(dongleId, LOG)]);
     return json([makeRoute(dongleId)]);
   }
   if (url.pathname.endsWith('/location')) return json({ error: 'no_segments_uploaded' });
@@ -158,7 +196,8 @@ async function mockFetch(input, init = {}) {
   if (url.pathname.endsWith('/subscription')) return json(options.subscription ?? null);
   if (url.pathname.endsWith('/subscribe_info')) return json(null);
   if (url.pathname.endsWith('/events.json') || url.pathname.endsWith('/coords.json')) return json([]);
-  if (url.pathname.endsWith('/files') || url.pathname.endsWith('/preserved')) return json(url.pathname.endsWith('/files') ? {} : []);
+  if (url.pathname.endsWith('/files') || url.pathname.endsWith('/preserved'))
+    return json(url.pathname.endsWith('/files') ? {} : []);
   throw new Error(`Unhandled request: ${init.method || 'GET'} ${url.href}`);
 }
 
@@ -193,10 +232,9 @@ async function renderAppFixture(pathname, options) {
   const store = createAppStore(history, createInitialState());
   appStores.add(store);
   const view = render(<App history={history} store={store} />);
-  await waitFor(
-    () => expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument(),
-    { timeout: 5000 },
-  );
+  await waitFor(() => expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument(), {
+    timeout: 5000,
+  });
   // Explorer initialization starts several independent async updates (device
   // details, stats, routes, and clip support). Let their promise chains finish
   // while React is inside act before handing control back to each test.
@@ -210,8 +248,18 @@ describe('whole-app behavior', () => {
   beforeAll(() => {
     vi.stubGlobal('fetch', vi.fn(mockFetch));
     vi.stubGlobal('PointerEvent', MouseEvent);
-    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
-    vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} unobserve() {} });
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    );
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      },
+    );
     Object.defineProperty(window, 'scrollTo', { value: vi.fn(), configurable: true });
     Object.defineProperty(window, 'visualViewport', { value: { height: 800 }, configurable: true });
     Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', { configurable: true, value: vi.fn(() => null) });
@@ -240,7 +288,10 @@ describe('whole-app behavior', () => {
     expect(new URL(request.url).searchParams.get('limit')).toBe('5');
   });
 
-  test.each([['no stored device', undefined], ['an unknown stored device', 'dddddddddddddddd']])('root selects first device with %s', async (_name, selected) => {
+  test.each([
+    ['no stored device', undefined],
+    ['an unknown stored device', 'dddddddddddddddd'],
+  ])('root selects first device with %s', async (_name, selected) => {
     const { history } = await renderApp('/', { selected });
     expect(await screen.findByText('Mock recent route start')).toBeVisible();
     expect(history.location.pathname).toBe(`/${SECOND}`);
@@ -256,14 +307,18 @@ describe('whole-app behavior', () => {
   test('referrals URL opens the referrals page', async () => {
     await renderApp('/referrals');
     expect(await screen.findByRole('heading', { name: /Refer a friend/ })).toBeVisible();
-    expect((await screen.findAllByText('$50', { selector: 'dd' }))).toHaveLength(3);
+    expect(await screen.findAllByText('$50', { selector: 'dd' })).toHaveLength(3);
     expect(screen.getByRole('link', { name: 'claim rewards ($50)' })).toHaveAttribute(
-      'href', expect.stringContaining('Referral%20coupon%3A%20ABC1234'),
+      'href',
+      expect.stringContaining('Referral%20coupon%3A%20ABC1234'),
     );
     expect(mocks.requests).toContainEqual({ method: 'GET', url: 'https://billing.comma.ai/v1/referrals' });
   });
 
-  test.each([['owned', FIRST], ['shared', SHARED]])('direct entry opens %s device dashboard', async (_name, dongleId) => {
+  test.each([
+    ['owned', FIRST],
+    ['shared', SHARED],
+  ])('direct entry opens %s device dashboard', async (_name, dongleId) => {
     const { history } = await renderApp(`/${dongleId}`);
     expect(await screen.findByText('Mock recent route start')).toBeVisible();
     expect(history.location.pathname).toBe(`/${dongleId}`);
@@ -295,7 +350,9 @@ describe('whole-app behavior', () => {
   });
 
   test.each([
-    ['private device', `/${FIRST}`], ['Prime', `/${FIRST}/prime`], ['stream', `/${FIRST}/stream`],
+    ['private device', `/${FIRST}`],
+    ['Prime', `/${FIRST}/prime`],
+    ['stream', `/${FIRST}/stream`],
   ])('signed-out %s entry retains its path', async (_name, pathname) => {
     const { history } = await renderApp(pathname, { authenticated: false });
     expect(await screen.findByText('Sign in with Google')).toBeVisible();
@@ -314,7 +371,10 @@ describe('whole-app behavior', () => {
     await waitFor(() => expect(history.location.pathname).toBe(`/${FIRST}/${LOG}`));
   });
 
-  test.each([['empty', { emptyRoutes: true }], ['failed', { failedRoutes: true }]])('legacy timestamp remains after an %s lookup', async (_name, options) => {
+  test.each([
+    ['empty', { emptyRoutes: true }],
+    ['failed', { failedRoutes: true }],
+  ])('legacy timestamp remains after an %s lookup', async (_name, options) => {
     const pathname = `/${FIRST}/${START}/${START + 60_000}`;
     const { history } = await renderApp(pathname, options);
     await waitFor(() => expect(history.location.pathname).toBe(pathname));
@@ -330,7 +390,12 @@ describe('whole-app behavior', () => {
   });
 
   test('stream close and browser history restore its view', async () => {
-    const online = devices.map((device) => ({ ...device, commacare: true, last_athena_ping: Math.floor(Date.now() / 1000), openpilot_version: '0.11.2' }));
+    const online = devices.map((device) => ({
+      ...device,
+      commacare: true,
+      last_athena_ping: Math.floor(Date.now() / 1000),
+      openpilot_version: '0.11.2',
+    }));
     const { history } = await renderApp(`/${FIRST}/stream`, { devices: online });
     expect(await screen.findByRole('button', { name: 'Close teleop' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Close teleop' }));
@@ -365,34 +430,50 @@ describe('whole-app behavior', () => {
     await waitFor(() => expect(history.location.pathname).toBe(`/${FIRST}`));
   });
   test('anonymous landing -> public drive selects public view without remounting App', async () => {
-    const app=await renderApp('/', {authenticated:false});
+    const app = await renderApp('/', { authenticated: false });
     expect(screen.getByText('Sign in with Google')).toBeVisible();
-    await act(async()=>{app.history.push(`/${FIRST}/${LOG}/0/20`);await new Promise(r=>setTimeout(r,10));});
+    await act(async () => {
+      app.history.push(`/${FIRST}/${LOG}/0/20`);
+      await new Promise((r) => setTimeout(r, 10));
+    });
     expect(screen.queryByText('Sign in with Google')).not.toBeInTheDocument();
-    expect(await screen.findByRole('slider',{name:'Drive timeline'})).toBeVisible();
+    expect(await screen.findByRole('slider', { name: 'Drive timeline' })).toBeVisible();
   });
   test('public drive -> dashboard selects login view without remounting App', async () => {
-    const app=await renderApp(`/${FIRST}/${LOG}/0/20`, {authenticated:false});
-    expect(await screen.findByRole('slider',{name:'Drive timeline'})).toBeVisible();
-    await act(async()=>{app.history.push(`/${FIRST}`);await new Promise(r=>setTimeout(r,10));});
+    const app = await renderApp(`/${FIRST}/${LOG}/0/20`, { authenticated: false });
+    expect(await screen.findByRole('slider', { name: 'Drive timeline' })).toBeVisible();
+    await act(async () => {
+      app.history.push(`/${FIRST}`);
+      await new Promise((r) => setTimeout(r, 10));
+    });
     expect(screen.getByText('Sign in with Google')).toBeVisible();
   });
   test('query-only login return change updates stored full return location', async () => {
-    const first=`/${FIRST}/${LOG}/0/20?x=one#first`;
-    const second=`/${SECOND}/${LOG}/1/10?x=two#second`;
-    const app=await renderApp(`/?r=${encodeURIComponent(first)}`,{authenticated:false});
+    const first = `/${FIRST}/${LOG}/0/20?x=one#first`;
+    const second = `/${SECOND}/${LOG}/1/10?x=two#second`;
+    const app = await renderApp(`/?r=${encodeURIComponent(first)}`, { authenticated: false });
     expect(sessionStorage.getItem('redirectURL')).toBe(first);
-    await act(async()=>{app.history.push(`/?r=${encodeURIComponent(second)}`);await new Promise(r=>setTimeout(r,10));});
+    await act(async () => {
+      app.history.push(`/?r=${encodeURIComponent(second)}`);
+      await new Promise((r) => setTimeout(r, 10));
+    });
     expect(sessionStorage.getItem('redirectURL')).toBe(second);
   });
   describe('task dialogs by URL', () => {
-    const online = () => devices.map((device) => ({
-      ...device, last_athena_ping: Math.floor(Date.now() / 1000), openpilot_version: '0.11.2',
-    }));
+    const online = () =>
+      devices.map((device) => ({
+        ...device,
+        last_athena_ping: Math.floor(Date.now() / 1000),
+        openpilot_version: '0.11.2',
+      }));
     const url = (history) => `${history.location.pathname}${history.location.search}`;
     let innerWidth;
-    beforeEach(() => { innerWidth = window.innerWidth; });
-    afterEach(() => { window.innerWidth = innerWidth; });
+    beforeEach(() => {
+      innerWidth = window.innerWidth;
+    });
+    afterEach(() => {
+      window.innerWidth = innerWidth;
+    });
 
     test('settings for another device open over a drive and close back to it', async () => {
       window.innerWidth = 1400; // permanent drawer with the device list
@@ -400,7 +481,8 @@ describe('whole-app behavior', () => {
       await screen.findByRole('slider', { name: 'Drive timeline' });
       const player = screen.getByTestId('video-player');
       const { zoom } = store.getState();
-      const gear = screen.getAllByRole('button', { name: 'device settings' })
+      const gear = screen
+        .getAllByRole('button', { name: 'device settings' })
         .find((button) => button.closest('a').getAttribute('href') === `/${SECOND}`);
       fireEvent.click(gear);
       await waitFor(() => expect(url(history)).toBe(`/${FIRST}/${LOG}/10/20?modal=settings&modalDevice=${SECOND}`));
@@ -427,7 +509,9 @@ describe('whole-app behavior', () => {
       expect(await screen.findByText('Upload queue')).toBeVisible();
       expect(await screen.findByText('no uploads')).toBeVisible(); // the queue actually loaded
       expect(screen.getByText('Device settings')).toBeInTheDocument();
-      act(() => { history.goBack(); }); // nothing to go back to in a fresh session: stays
+      act(() => {
+        history.goBack();
+      }); // nothing to go back to in a fresh session: stays
       expect(url(history)).toBe(`/${FIRST}/settings/uploads`);
     });
 
@@ -437,7 +521,9 @@ describe('whole-app behavior', () => {
     });
 
     test('the add-device link does not start the camera until asked', async () => {
-      const getUserMedia = vi.fn(async () => { throw Object.assign(new Error('denied'), { name: 'NotAllowedError' }); });
+      const getUserMedia = vi.fn(async () => {
+        throw Object.assign(new Error('denied'), { name: 'NotAllowedError' });
+      });
       Object.defineProperty(navigator, 'mediaDevices', {
         configurable: true,
         value: { enumerateDevices: vi.fn(async () => [{ kind: 'videoinput' }]), getUserMedia },
@@ -454,7 +540,9 @@ describe('whole-app behavior', () => {
 
     test('opening add-device with its button starts the camera without asking again', async () => {
       window.innerWidth = 1400; // the device list (with its add button) is in the permanent drawer
-      const getUserMedia = vi.fn(async () => { throw Object.assign(new Error('denied'), { name: 'NotAllowedError' }); });
+      const getUserMedia = vi.fn(async () => {
+        throw Object.assign(new Error('denied'), { name: 'NotAllowedError' });
+      });
       Object.defineProperty(navigator, 'mediaDevices', {
         configurable: true,
         value: { enumerateDevices: vi.fn(async () => [{ kind: 'videoinput' }]), getUserMedia },
@@ -467,14 +555,34 @@ describe('whole-app behavior', () => {
     });
 
     test('a clip preview link for a changed clip says so instead of showing another version', async () => {
-      const clips = [{ filename: 'trip.mp4', requested_at: 222, status: 'ready', camera: 'fcamera.hevc', source_start_time: 0, source_end_time: 10, route: 'x' }];
+      const clips = [
+        {
+          filename: 'trip.mp4',
+          requested_at: 222,
+          status: 'ready',
+          camera: 'fcamera.hevc',
+          source_start_time: 0,
+          source_end_time: 10,
+          route: 'x',
+        },
+      ];
       await renderApp(`/${FIRST}/clips?clip=trip.mp4&clipRequestedAt=111`, { devices: online(), clips });
       expect(await screen.findByText('This clip changed on the device since the link was made.')).toBeVisible();
       expect(mocks.rpcs).not.toContain('getClipChunk');
     });
 
     test('a filename-only clip link resolves to the current version', async () => {
-      const clips = [{ filename: 'trip.mp4', requested_at: 222, status: 'ready', camera: 'fcamera.hevc', source_start_time: 0, source_end_time: 10, route: 'x' }];
+      const clips = [
+        {
+          filename: 'trip.mp4',
+          requested_at: 222,
+          status: 'ready',
+          camera: 'fcamera.hevc',
+          source_start_time: 0,
+          source_end_time: 10,
+          route: 'x',
+        },
+      ];
       const { history } = await renderApp(`/${FIRST}/clips?clip=trip.mp4`, { devices: online(), clips });
       await waitFor(() => expect(history.location.search).toBe('?clip=trip.mp4&clipRequestedAt=222'));
       expect(history.length).toBe(1);
@@ -493,16 +601,29 @@ describe('whole-app behavior', () => {
     test('cancelling Prime from its link, then losing the subscription, just closes the dialog', async () => {
       const primeDevices = devices.map((device) => ({ ...device, prime: true, prime_type: 2 }));
       const subscription = {
-        user_id: 'test-user', plan: 'data', amount: 2400, is_prime_sim: false, trial_end: null,
-        next_charge_at: 1_900_000_000, subscribed_at: 1_700_000_000, cancel_at: null, requires_migration: false,
+        user_id: 'test-user',
+        plan: 'data',
+        amount: 2400,
+        is_prime_sim: false,
+        trial_end: null,
+        next_charge_at: 1_900_000_000,
+        subscribed_at: 1_700_000_000,
+        cancel_at: null,
+        requires_migration: false,
       };
       const { history, store } = await renderApp(`/${FIRST}/prime/cancel`, { devices: primeDevices, subscription });
       expect(await screen.findByText('Cancel prime subscription')).toBeVisible();
       expect(mocks.requests.some(({ method, url: u }) => method === 'POST' && u.includes('/prime/cancel'))).toBe(false);
       fireEvent.click(document.querySelector('.primeModalCancel'));
-      await waitFor(() => expect(mocks.requests.some(({ method, url: u }) => method === 'POST' && u.includes('/prime/cancel'))).toBe(true));
+      await waitFor(() =>
+        expect(mocks.requests.some(({ method, url: u }) => method === 'POST' && u.includes('/prime/cancel'))).toBe(
+          true,
+        ),
+      );
       // the device list refreshes and the device is no longer on Prime
-      act(() => { store.dispatch(updateDevices(devices)); });
+      act(() => {
+        store.dispatch(updateDevices(devices));
+      });
       await waitFor(() => expect(url(history)).toBe(`/${FIRST}/prime`));
       expect(screen.queryByText('This device has no comma prime subscription.')).not.toBeInTheDocument();
     });
@@ -514,9 +635,20 @@ describe('whole-app behavior', () => {
     });
 
     test('a preview link for a clip still being made opens once the clip is ready', async () => {
-      const clip = { filename: 'trip.mp4', requested_at: 222, status: 'encoding', camera: 'fcamera.hevc', source_start_time: 0, source_end_time: 10, route: 'x' };
+      const clip = {
+        filename: 'trip.mp4',
+        requested_at: 222,
+        status: 'encoding',
+        camera: 'fcamera.hevc',
+        source_start_time: 0,
+        source_end_time: 10,
+        route: 'x',
+      };
       mocks.options = { clips: [clip] };
-      const { history } = await renderApp(`/${FIRST}/clips?clip=trip.mp4&clipRequestedAt=222`, { devices: online(), clips: [clip] });
+      const { history } = await renderApp(`/${FIRST}/clips?clip=trip.mp4&clipRequestedAt=222`, {
+        devices: online(),
+        clips: [clip],
+      });
       expect(await screen.findByText('This clip is still being made.')).toBeVisible();
       mocks.options.clips = [{ ...clip, status: 'ready' }]; // the next poll sees it finished
       await waitFor(() => expect(mocks.rpcs).toContain('getClipChunk'), { timeout: 4000 });
@@ -538,7 +670,9 @@ describe('whole-app behavior', () => {
         await waitFor(() => expect(play).toHaveBeenCalled());
         fireEvent.click(document.querySelector('[class*="MuiBackdrop"]')); // close
         await waitFor(() => expect(history.location.search).toBe(''));
-        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
         expect(getUserMedia).toHaveBeenCalledTimes(1);
         expect(stop).toHaveBeenCalled();
       } finally {
@@ -553,15 +687,24 @@ describe('whole-app behavior', () => {
         configurable: true,
         value: {
           enumerateDevices: vi.fn(async () => [{ kind: 'videoinput' }]),
-          getUserMedia: vi.fn(() => new Promise((resolve) => { grant = resolve; })),
+          getUserMedia: vi.fn(
+            () =>
+              new Promise((resolve) => {
+                grant = resolve;
+              }),
+          ),
         },
       });
       const { history } = await renderApp(`/${FIRST}?modal=add-device`);
       fireEvent.click(await screen.findByRole('button', { name: 'scan QR code with camera' }));
       await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled());
-      act(() => { history.push(`/${FIRST}`); }); // closed while permission is pending
+      act(() => {
+        history.push(`/${FIRST}`);
+      }); // closed while permission is pending
       await waitFor(() => expect(screen.queryByText('Pair device')).not.toBeInTheDocument());
-      await act(async () => { grant({ getTracks: () => [{ stop }] }); });
+      await act(async () => {
+        grant({ getTracks: () => [{ stop }] });
+      });
       expect(stop).toHaveBeenCalled();
     });
 
@@ -573,48 +716,51 @@ describe('whole-app behavior', () => {
   test('adversarial Prime device transition uses the destination plan', async () => {
     const primeDevices = devices.map((device) => ({ ...device, prime: true, prime_type: 2 }));
     const subscription = {
-      user_id: 'test-user', plan: 'data', amount: 2400, is_prime_sim: false, trial_end: null,
-      next_charge_at: 1_900_000_000, subscribed_at: 1_700_000_000, cancel_at: null, requires_migration: false,
+      user_id: 'test-user',
+      plan: 'data',
+      amount: 2400,
+      is_prime_sim: false,
+      trial_end: null,
+      next_charge_at: 1_900_000_000,
+      subscribed_at: 1_700_000_000,
+      cancel_at: null,
+      requires_migration: false,
     };
     const { history } = await renderApp(`/${FIRST}/prime/change-plan`, { devices: primeDevices, subscription });
     expect(await screen.findByRole('heading', { name: 'Switch to Lite plan' })).toBeVisible();
     mocks.options.subscription = { ...subscription, plan: 'nodata', amount: 1400 };
-    act(() => { history.push(`/${SECOND}/prime/change-plan`); });
-    await waitFor(() => expect(mocks.requests.some(({ url: u }) => u.includes('/subscription') && new URL(u).searchParams.get('dongle_id') === SECOND)).toBe(true));
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    act(() => {
+      history.push(`/${SECOND}/prime/change-plan`);
+    });
+    await waitFor(() =>
+      expect(
+        mocks.requests.some(
+          ({ url: u }) => u.includes('/subscription') && new URL(u).searchParams.get('dongle_id') === SECOND,
+        ),
+      ).toBe(true),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     expect(screen.queryByRole('heading', { name: 'Switch to Standard plan' })).toBeVisible();
   });
-
-
 });
 
 test('an authorized 401 clears private ownership and reloads the complete public URL', async () => {
-  const history = createMemoryHistory({
-    initialEntries: [`/${FIRST}/${LOG}?ext=kept#bookmark`]
-  });
+  const history = createMemoryHistory({ initialEntries: [`/${FIRST}/${LOG}?ext=kept#bookmark`] });
   const store = createAppStore(history, createInitialState());
-  const app = new App({
-    store,
-    history
-  });
-  await app.apiErrorResponseCallback({
-    status: 401
-  });
+  const app = new App({ store, history });
+  await app.apiErrorResponseCallback({ status: 401 });
   expect(store.getState().sessionEpoch).toBe(1);
   expect(mocks.hardNavigate).toHaveBeenCalledWith(`/${FIRST}/${LOG}?ext=kept#bookmark`);
 });
 test('delayed startup auth cannot configure an ended session', async () => {
-  const history = createMemoryHistory({
-    initialEntries: [`/${FIRST}/stream`]
-  });
+  const history = createMemoryHistory({ initialEntries: [`/${FIRST}/stream`] });
   const store = createAppStore(history, createInitialState());
-  const app = new App({
-    store,
-    history
-  });
+  const app = new App({ store, history });
   app.setState = vi.fn();
   let resolve;
-  MyCommaAuth.init.mockImplementationOnce(() => new Promise(r => resolve = r));
+  MyCommaAuth.init.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
   const pending = app.componentDidMount();
   store.dispatch(endSession());
   resolve('old-token');
@@ -623,45 +769,29 @@ test('delayed startup auth cannot configure an ended session', async () => {
   expect(app.setState).not.toHaveBeenCalled();
 });
 test('delayed 401 logout cannot reload a successor session', async () => {
-  const history = createMemoryHistory({
-    initialEntries: [`/${FIRST}/${LOG}`]
-  });
+  const history = createMemoryHistory({ initialEntries: [`/${FIRST}/${LOG}`] });
   const store = createAppStore(history, createInitialState());
-  const app = new App({
-    store,
-    history
-  });
+  const app = new App({ store, history });
   let resolve;
-  AuthStorage.logOut.mockImplementationOnce(() => new Promise(r => resolve = r));
+  AuthStorage.logOut.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
   mocks.hardNavigate.mockClear();
-  const pending = app.apiErrorResponseCallback({
-    status: 401
-  });
+  const pending = app.apiErrorResponseCallback({ status: 401 });
   store.dispatch(endSession());
   resolve();
   await pending;
   expect(mocks.hardNavigate).not.toHaveBeenCalled();
 });
 test('401 recovery waits for persisted resource teardown before reload', async () => {
-  const history = createMemoryHistory({
-    initialEntries: [`/${FIRST}/${LOG}?kept=1#anchor`]
-  });
+  const history = createMemoryHistory({ initialEntries: [`/${FIRST}/${LOG}?kept=1#anchor`] });
   const store = createAppStore(history, createInitialState());
   let finish;
   store.dispatch((_dispatch, _getState, services) => {
-    services.assetCache = {
-      clear: () => new Promise(resolve => finish = resolve)
-    };
+    services.assetCache = { clear: () => new Promise((resolve) => (finish = resolve)) };
   });
-  const app = new App({
-    store,
-    history
-  });
+  const app = new App({ store, history });
   AuthStorage.logOut.mockResolvedValueOnce();
   mocks.hardNavigate.mockClear();
-  const pending = app.apiErrorResponseCallback({
-    status: 401
-  });
+  const pending = app.apiErrorResponseCallback({ status: 401 });
   await Promise.resolve();
   await Promise.resolve();
   const redirected = mocks.hardNavigate.mock.calls.length;
@@ -670,47 +800,35 @@ test('401 recovery waits for persisted resource teardown before reload', async (
   expect(redirected).toBe(0);
 });
 test('the account-menu logout clears session-owned Redux and persisted services', async () => {
-  const history = createMemoryHistory({
-    initialEntries: ['/']
-  });
+  const history = createMemoryHistory({ initialEntries: ['/'] });
   const store = createAppStore(history, {
     ...createInitialState(),
-    profile: {
-      id: 'private',
-      email: 'test@example.com'
-    }
+    profile: { id: 'private', email: 'test@example.com' },
   });
-  render(<Provider store={store}><AccountMenu profile={store.getState().profile} open onClose={() => {}} onReferrals={() => {}} /></Provider>);
-  fireEvent.click(screen.getByRole('button', {
-    name: 'Log out'
-  }));
+  render(
+    <Provider store={store}>
+      <AccountMenu profile={store.getState().profile} open onClose={() => {}} onReferrals={() => {}} />
+    </Provider>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
   await Promise.resolve();
   await Promise.resolve();
   expect(store.getState().profile).toBeNull();
   expect(store.getState().sessionEpoch).toBe(1);
 });
 test('a successor epoch suppresses recovery after pending purge completes', async () => {
-  const history = createMemoryHistory({
-    initialEntries: ['/']
-  });
+  const history = createMemoryHistory({ initialEntries: ['/'] });
   const store = createAppStore(history, createInitialState());
   const finish = [];
   store.dispatch((_dispatch, _getState, services) => {
-    services.assetCache = {
-      clear: () => new Promise(resolve => finish.push(resolve))
-    };
+    services.assetCache = { clear: () => new Promise((resolve) => finish.push(resolve)) };
   });
-  const app = new App({
-    store,
-    history
-  });
+  const app = new App({ store, history });
   AuthStorage.logOut.mockResolvedValueOnce();
   mocks.hardNavigate.mockClear();
-  const pending = app.apiErrorResponseCallback({
-    status: 401
-  });
+  const pending = app.apiErrorResponseCallback({ status: 401 });
   store.dispatch(endSession());
-  finish.forEach(resolve => resolve());
+  finish.forEach((resolve) => resolve());
   await pending;
   expect(mocks.hardNavigate).not.toHaveBeenCalled();
 });

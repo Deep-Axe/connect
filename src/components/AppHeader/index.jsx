@@ -1,4 +1,3 @@
-import { selectFilter } from '../../selectors';
 import React, { useCallback, useState } from 'react';
 import { connect } from 'react-redux';
 
@@ -15,6 +14,7 @@ import Colors from '../../colors';
 import { filterRegularClick } from '../../utils';
 
 import AccountMenu from './AccountMenu';
+import { selectFilter } from '../../selectors';
 
 const REFERRALS_SEEN_KEY = 'referralsGiftClicked';
 

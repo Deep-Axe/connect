@@ -1,4 +1,3 @@
-import { selectCurrentRoute } from '../../selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import dayjs from 'dayjs';
@@ -13,6 +12,7 @@ import { filterRegularClick } from '../../utils';
 
 import Media from './Media';
 import Timeline from '../Timeline';
+import { selectCurrentRoute } from '../../selectors';
 
 class DriveView extends Component {
   constructor(props) {

@@ -1,4 +1,3 @@
-import { selectFilter } from '../../selectors';
 import { useState } from 'react';
 import { connect } from 'react-redux';
 
@@ -6,6 +5,7 @@ import { Button, Modal, Paper, Typography, withStyles } from '@material-ui/core'
 
 import Colors from '../../colors';
 import { selectTimeFilter } from '../../actions';
+import { selectFilter } from '../../selectors';
 
 const styles = {
   cancelButton: {

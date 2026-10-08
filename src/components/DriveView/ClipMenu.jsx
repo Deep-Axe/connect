@@ -4,7 +4,7 @@ import {
 } from '@material-ui/core';
 
 import Colors from '../../colors';
-import { ClipChangedError, clipDevice } from '../../api/clips';
+import { ClipChangedError } from '../../api/clips';
 import { CloseBold, Download as DownloadIcon, PlayArrow, Trash } from '../../icons';
 import { shareOrDownload } from '../../utils/file';
 import InfoTooltip from '../utils/InfoTooltip';
@@ -298,8 +298,9 @@ class ClipMenu extends Component {
     this.download = null;
   }
 
+  // the store's clip service (getClipService), passed by ModalHost
   clipService() {
-    return this.props.clipDevice ?? clipDevice;
+    return this.props.clipDevice;
   }
 
   ownsClipTask(service, dongleId) {

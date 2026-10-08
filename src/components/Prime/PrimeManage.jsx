@@ -1,4 +1,3 @@
-import { selectSubscription } from '../../resources/selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import dayjs from 'dayjs';
@@ -19,6 +18,7 @@ import { selectNavLocation } from '../../routing/selectors';
 import CommacareBadge, { COMMACARE_URL } from '../CommacareBadge';
 import { otherPrimePlan, primePlanName } from './primePlans';
 import { selectDevice } from '../../selectors';
+import { selectSubscription } from '../../resources/selectors';
 
 export function primeSwitchErrorMessage(error, plan = 'data') {
   const status = error?.resp?.status;

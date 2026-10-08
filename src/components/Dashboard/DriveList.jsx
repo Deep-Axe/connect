@@ -1,4 +1,3 @@
-import { selectRoutes, selectRoutesForDisplay } from '../../selectors';
 import React, { useState, useEffect, useCallback } from 'react';
 import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
@@ -14,7 +13,7 @@ import TimeSelect from '../TimeSelect';
 import DriveListEmpty from './DriveListEmpty';
 import DriveListItem from './DriveListItem';
 import ScrollIntoView from '../ScrollIntoView'
-import { selectDevice } from '../../selectors';
+import { selectDevice, selectRoutes, selectRoutesForDisplay } from '../../selectors';
 
 const styles = () => ({
   header: {

@@ -46,9 +46,9 @@ describe('upload RPC errors', () => {
 
     await harness.dispatch(cancelUploads(DEVICE, ['upload-1']));
 
-    expect(harness.actions).toContainEqual(expect.objectContaining({
-      type: 'online', dongleId: DEVICE, lastAthenaPing: 0,
-    }));
+    expect(harness.actions).toContainEqual(
+      expect.objectContaining({ type: 'online', dongleId: DEVICE, lastAthenaPing: 0 }),
+    );
     expect(mocks.captureException).not.toHaveBeenCalled();
   });
 

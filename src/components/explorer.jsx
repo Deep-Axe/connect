@@ -1,8 +1,5 @@
-import { captureOperation } from '../actions/owned';
-import { selectCurrentRoute } from '../selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
-import { readPairToken, removePairToken } from '../routing/pairToken';
 
 import { withStyles, Button, CircularProgress, Modal, Paper, Typography } from '@material-ui/core';
 import 'mapbox-gl/src/css/mapbox-gl.css';
@@ -16,9 +13,12 @@ import AppDrawer from './AppDrawer';
 import BodyTeleop from './BodyTeleop';
 
 import { analyticsEvent, refreshDevices } from '../actions';
+import { captureOperation } from '../actions/owned';
 import { VIEWS } from '../routing/codec';
 import { leavePage, toDashboard } from '../routing/navigate';
+import { readPairToken, removePairToken } from '../routing/pairToken';
 import { selectNavLocation, selectView } from '../routing/selectors';
+import { selectCurrentRoute, selectDevices } from '../selectors';
 import Colors from '../colors';
 import { play, pause } from '../timeline/playback';
 import { verifyPairToken, pairErrorToMessage } from '../utils';
@@ -29,7 +29,6 @@ import NoDeviceUpsell from './DriveView/NoDeviceUpsell';
 import Referrals from './Referrals';
 import PageNotFound from './PageNotFound';
 import ModalHost from './ModalHost';
-import { selectDevices } from '../selectors';
 
 const styles = (theme) => ({
   app: {

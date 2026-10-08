@@ -6,7 +6,6 @@ import { createRoutingServices } from '../routing/services';
 import { runNavigationEffects } from '../routing/effects';
 
 const A = 'aaaaaaaaaaaaaaaa';
-
 const B = 'bbbbbbbbbbbbbbbb';
 let opened;
 
@@ -18,7 +17,7 @@ function fakeConnection() {
       conn.connectionState = 'disconnected';
     }),
     enableVideo: vi.fn(),
-    enableJoystick: vi.fn()
+    enableJoystick: vi.fn(),
   };
   opened.push(conn);
   return conn;
@@ -27,9 +26,7 @@ let manager;
 
 beforeEach(() => {
   opened = [];
-  manager = new WebRTCConnectionManager({
-    createConnection: fakeConnection
-  });
+  manager = new WebRTCConnectionManager({ createConnection: fakeConnection });
 });
 
 describe('stream connection policy', () => {
@@ -49,9 +46,7 @@ describe('stream connection policy', () => {
 
   it('leaving keeps a comma body warm and returning reuses it', () => {
     manager.enterStream(A);
-    manager.leaveStream(A, {
-      keepWarm: true
-    });
+    manager.leaveStream(A, { keepWarm: true });
     expect(opened[0].disconnect).not.toHaveBeenCalled();
     manager.enterStream(A);
     expect(opened).toHaveLength(1);
@@ -59,18 +54,14 @@ describe('stream connection policy', () => {
 
   it("leaving closes a car's connection", () => {
     manager.enterStream(A);
-    manager.leaveStream(A, {
-      keepWarm: false
-    });
+    manager.leaveStream(A, { keepWarm: false });
     expect(opened[0].disconnect).toHaveBeenCalled();
     expect(manager.connection).toBeNull();
   });
 
   it('leaving a stream page for another device does not touch the current one', () => {
     manager.enterStream(B);
-    manager.leaveStream(A, {
-      keepWarm: false
-    });
+    manager.leaveStream(A, { keepWarm: false });
     expect(opened[0].disconnect).not.toHaveBeenCalled();
   });
 
@@ -108,9 +99,7 @@ describe('stream ownership', () => {
 
   it('a real release, disconnect or device change clears it', () => {
     manager.enterStream(A);
-    manager.leaveStream(A, {
-      keepWarm: true
-    });
+    manager.leaveStream(A, { keepWarm: true });
     expect(manager.streamDongleId).toBeNull();
     manager.enterStream(A);
     manager.disconnect();
@@ -122,50 +111,34 @@ describe('stream ownership', () => {
 
   // the real exported manager and the real navigation effects; only the
   // transport and the effect dispatch boundary are faked
-  const leaveColdStream = notCar => {
+  const leaveColdStream = (notCar) => {
     liveManager.disconnect();
     const originalFactory = liveManager.createConnection;
     liveManager.createConnection = fakeConnection;
     try {
       liveManager.enterStream(A);
       const connection = liveManager.connection;
-      runNavigationEffects(null, {
-        base: {
-          view: 'dashboard',
-          dongleId: A
+      runNavigationEffects(
+        null,
+        { base: { view: 'dashboard', dongleId: A }, commands: {} },
+        {
+          isCurrent: () => true,
+          isLatest: () => true,
+          previousDongleId: A,
+          getState: () => ({
+            dongleId: A,
+            limit: 5,
+            entities: { devices: { [A]: { dongle_id: A, rpc: { not_car: notCar } } }, deviceOrder: [A] },
+          }),
+          dispatch: vi.fn(),
+          services: { commands: { pairTokens: new Set() } },
         },
-        commands: {}
-      }, {
-        isCurrent: () => true,
-        isLatest: () => true,
-        previousDongleId: A,
-        getState: () => ({
-          dongleId: A,
-          limit: 5,
-          entities: {
-            devices: {
-              [A]: {
-                dongle_id: A,
-                rpc: {
-                  not_car: notCar
-                }
-              }
-            },
-            deviceOrder: [A]
-          }
-        }),
-        dispatch: vi.fn(),
-        services: {
-          commands: {
-            pairTokens: new Set()
-          }
-        }
-      });
+      );
       // read before the cleanup below disconnects everything
       return {
         disconnected: connection.disconnect.mock.calls.length > 0,
         kept: liveManager.connection === connection,
-        owner: liveManager.streamDongleId
+        owner: liveManager.streamDongleId,
       };
     } finally {
       liveManager.disconnect();
@@ -173,20 +146,13 @@ describe('stream ownership', () => {
     }
   };
   it('leaving a cold SPA stream closes the actual car transport', () => {
-    const {
-      disconnected,
-      kept
-    } = leaveColdStream(false);
+    const { disconnected, kept } = leaveColdStream(false);
     expect(disconnected).toBe(true);
     expect(kept).toBe(false);
   });
 
   it('leaving a cold SPA stream keeps a comma body warm and releases ownership', () => {
-    const {
-      disconnected,
-      kept,
-      owner
-    } = leaveColdStream(true);
+    const { disconnected, kept, owner } = leaveColdStream(true);
     expect(disconnected).toBe(false);
     expect(kept).toBe(true);
     expect(owner).toBeNull();
@@ -201,37 +167,21 @@ describe('invalid exit and logout on actual manager', () => {
     try {
       liveManager.enterStream(A);
       const connection = liveManager.connection;
-      runNavigationEffects(null, {
-        base: {
-          view: 'invalid',
-          dongleId: null
+      runNavigationEffects(
+        null,
+        { base: { view: 'invalid', dongleId: null }, commands: {} },
+        {
+          isCurrent: () => true,
+          isLatest: () => true,
+          previousDongleId: A,
+          getState: () => ({
+            dongleId: A,
+            entities: { devices: { [A]: { dongle_id: A, rpc: { not_car: false } } }, deviceOrder: [] },
+          }),
+          dispatch: vi.fn(),
+          services: { commands: { pairTokens: new Set() } },
         },
-        commands: {}
-      }, {
-        isCurrent: () => true,
-        isLatest: () => true,
-        previousDongleId: A,
-        getState: () => ({
-          dongleId: A,
-          entities: {
-            devices: {
-              [A]: {
-                dongle_id: A,
-                rpc: {
-                  not_car: false
-                }
-              }
-            },
-            deviceOrder: []
-          }
-        }),
-        dispatch: vi.fn(),
-        services: {
-          commands: {
-            pairTokens: new Set()
-          }
-        }
-      });
+      );
       expect(connection.disconnect).toHaveBeenCalled();
       expect(liveManager.streamDongleId).toBeNull();
     } finally {
@@ -247,9 +197,7 @@ describe('invalid exit and logout on actual manager', () => {
     try {
       liveManager.enterStream(A);
       const connection = liveManager.connection;
-      endSession()(vi.fn(), () => ({
-        sessionEpoch: 0
-      }), createRoutingServices());
+      endSession()(vi.fn(), () => ({ sessionEpoch: 0 }), createRoutingServices());
       expect(connection.disconnect).toHaveBeenCalled();
       expect(liveManager.streamDongleId).toBeNull();
     } finally {

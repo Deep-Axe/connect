@@ -1,4 +1,3 @@
-import { selectCurrentRoute } from '../../selectors';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import dayjs from 'dayjs';
@@ -13,6 +12,7 @@ import { currentOffset } from '../../timeline';
 import { seek, play, pause } from '../../timeline/playback';
 import { getSegmentNumber } from '../../utils';
 import { isIos } from '../../utils/browser.js';
+import { selectCurrentRoute } from '../../selectors';
 
 const timerSteps = [
   0.1,
