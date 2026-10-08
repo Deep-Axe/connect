@@ -23,10 +23,6 @@ vi.mock('../api', () => ({
   }
 }));
 
-vi.mock('../api/clips', () => ({
-  deviceSupportsClips: vi.fn()
-}));
-
 vi.mock('../api/backend', () => ({
   api: {
     devices: {

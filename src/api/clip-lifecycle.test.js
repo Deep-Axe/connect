@@ -58,9 +58,8 @@ describe('adversarial clip lifecycle', () => {
     mocks.getItem.mockImplementationOnce(() => new Promise(r => {
       resolveLookup = r;
     }));
-    const {
-      clipDevice
-    } = await import('./clips');
+    const { createClipService } = await import('./clips');
+    const clipDevice = createClipService();
     const progress = vi.fn();
     const pending = clipDevice.getClipUrl(D, 'late.mp4', 1, progress, async () => true);
     clipDevice.releaseClip(D, 'late.mp4', 1, progress);
@@ -78,10 +77,8 @@ describe('adversarial clip lifecycle', () => {
 
   it('a cached preview verifies requested version before displaying the blob', async () => {
     mocks.stored.set(`clip:${D}/cached.mp4/1`, new Blob(['old']));
-    const {
-      clipDevice,
-      ClipChangedError
-    } = await import('./clips');
+    const { ClipChangedError, createClipService } = await import('./clips');
+    const clipDevice = createClipService();
     const verify = vi.fn(async () => false);
     await expect(clipDevice.getClipUrl(D, 'cached.mp4', 1, vi.fn(), verify)).rejects.toBeInstanceOf(ClipChangedError);
     expect(URL.createObjectURL).not.toHaveBeenCalled();
@@ -92,9 +89,8 @@ describe('adversarial clip lifecycle', () => {
     mocks.athena.mockImplementationOnce(() => new Promise(r => {
       resolveChunk = r;
     }));
-    const {
-      clipDevice
-    } = await import('./clips');
+    const { createClipService } = await import('./clips');
+    const clipDevice = createClipService();
     const first = vi.fn(),
       second = vi.fn();
     const a = clipDevice.getClipUrl(D, 'shared.mp4', 1, first, async () => true);
@@ -120,9 +116,8 @@ describe('adversarial clip lifecycle', () => {
     mocks.athena.mockImplementationOnce(() => new Promise(r => {
       resolveChunk = r;
     }));
-    const {
-      clipDevice
-    } = await import('./clips');
+    const { createClipService } = await import('./clips');
+    const clipDevice = createClipService();
     const progress = vi.fn();
     const pending = clipDevice.getClipUrl(D, 'cancel.mp4', 1, progress, async () => true);
     const rejection = pending.catch(error => error);
@@ -143,9 +138,8 @@ describe('adversarial clip lifecycle', () => {
     vi.useFakeTimers();
     try {
       mocks.athena.mockResolvedValue(null);
-      const {
-        clipDevice
-      } = await import('./clips');
+      const { createClipService } = await import('./clips');
+      const clipDevice = createClipService();
       const progress = vi.fn();
       const pending = clipDevice.getClipUrl(D, 'retry.mp4', 1, progress, async () => true).catch(() => null);
       await flush();

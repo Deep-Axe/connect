@@ -1,5 +1,6 @@
-import { athena as Athena } from '../api';
 import localforage from 'localforage';
+
+import { athena as Athena } from '../api';
 import { deviceVersionAtLeast } from '../utils';
 import { createPurgeMarker } from '../resources/purgeMarker';
 
@@ -305,7 +306,3 @@ export function createClipService({
     },
   };
 }
-
-// Standalone callers/tests have their own service; the SPA injects one per store.
-export const clipDevice = createClipService();
-export const deviceSupportsClips = device => clipDevice.deviceSupportsClips(device);

@@ -26,10 +26,9 @@ vi.mock('localforage', () => ({
   }
 }));
 
-const {
-  ClipChangedError,
-  clipDevice
-} = await import('./clips');
+const { ClipChangedError, createClipService } = await import('./clips');
+
+const clipDevice = createClipService();
 
 const D = 'aaaaaaaaaaaaaaaa';
 
