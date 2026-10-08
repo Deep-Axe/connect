@@ -283,7 +283,9 @@ export default function reducer(_state, action) {
       break;
     case Types.ACTION_UPDATE_SHARED_DEVICE:
       // a device the account doesn't list (shared with the user)
-      state = updateDeviceEntity(state, action.dongleId, () => ({ ...action.device, fetched_at: action.fetchedAt }));
+      state = updateDeviceEntity(state, action.dongleId, (previous) => ({
+        ...previous, ...action.device, fetched_at: action.fetchedAt,
+      }));
       break;
     case Types.ACTION_UPDATE_DEVICE_ONLINE:
       state = updateDeviceEntity(state, action.dongleId, (previous) => ({

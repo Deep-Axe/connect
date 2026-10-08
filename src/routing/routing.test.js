@@ -24,6 +24,7 @@ import {
   selectNavLocation, selectSelectedRouteId, selectSelectedRouteMissing, selectSelectionOutOfRange, selectView,
 } from './selectors';
 import { checkRoutesData, leaveForExternalUrl, renameDevice, updateDevice, updateDevices } from '../actions';
+import { billing } from '../api';
 import { MODALS, modalOf } from './codec';
 import {
   closeModal, driveBack, leavePage, openModal, openedInteractively, toDashboard, toDriveRange, toPrime,
@@ -861,6 +862,31 @@ describe('devices are stored once, by id', () => {
     // only its online status is refreshed (deliberately, on selection)
     expect(selectDevice(store.getState())).toMatchObject({ dongle_id: A, rpc: { not_car: true } });
     expect(api.listDevices).toHaveBeenCalledTimes(1);
+  });
+
+  it('a device paired after startup is treated as listed, not shared', async () => {
+    const PAIRED = 'cccccccccccccccc';
+    const { history, store } = await start(`/${A}`);
+    store.dispatch(updateDevices([
+      { dongle_id: A, is_owner: true, prime: false },
+      { dongle_id: PAIRED, alias: 'New', is_owner: true, prime: true },
+    ]));
+    api.fetchDevice.mockResolvedValue({ last_athena_ping: 5 });
+    history.push(`/${PAIRED}`);
+    await settle();
+    await settle();
+    expect(billing.getSubscription).toHaveBeenCalledWith(PAIRED);
+    expect(selectDevice(store.getState())).toMatchObject({
+      dongle_id: PAIRED, alias: 'New', is_owner: true, shared: false, last_athena_ping: 5,
+    });
+  });
+
+  it('a fetched shared device keeps what was already known about it', async () => {
+    const SHARED = 'cccccccccccccccc';
+    const { store } = await start(`/${A}`);
+    store.dispatch({ type: Types.ACTION_UPDATE_DEVICE_RPC, dongleId: SHARED, fields: { not_car: true } });
+    store.dispatch({ type: Types.ACTION_UPDATE_SHARED_DEVICE, dongleId: SHARED, device: { alias: 'Shared' } });
+    expect(store.getState().entities.devices[SHARED]).toMatchObject({ alias: 'Shared', rpc: { not_car: true } });
   });
 
   it('a shared device not in the list is a placeholder until fetched, then stored', async () => {

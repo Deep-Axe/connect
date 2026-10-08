@@ -138,9 +138,12 @@ async function selectedDeviceChanged(dongleId, ctx) {
   const { dispatch, getState } = ctx;
   window.localStorage.setItem('selectedDongleId', dongleId);
 
-  const { devices, profile } = await ctx.session();
+  await ctx.session();
   if (!ctx.isCurrent() || getState().dongleId !== dongleId) return;
-  const device = (devices || []).find((d) => d.dongle_id === dongleId);
+  // the device store, not the bootstrap snapshot: a device paired since then
+  // is listed too
+  const { entities, profile } = getState();
+  const device = entities.deviceOrder?.includes(dongleId) ? entities.devices[dongleId] : null;
   if ((device && !device.shared) || profile?.superuser) {
     dispatch(primeFetchSubscription(dongleId, device, profile));
     dispatch(fetchDeviceOnline(dongleId));
