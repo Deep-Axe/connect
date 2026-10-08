@@ -5,9 +5,21 @@
 import { goBack, push, replace } from 'connected-react-router';
 
 import {
-  VIEWS, buildUrl, deviceBase, directBaseFor, driveBase, locationFor, locationForEdit, locationOfUrl,
-  modalAllowedOn, parentModal, parseLocation,
-  referralsBase, rootBase, sameBase, urlOfRouterLocation,
+  VIEWS,
+  buildUrl,
+  deviceBase,
+  directBaseFor,
+  driveBase,
+  locationFor,
+  locationForEdit,
+  locationOfUrl,
+  modalAllowedOn,
+  parentModal,
+  parseLocation,
+  referralsBase,
+  rootBase,
+  sameBase,
+  urlOfRouterLocation,
 } from './codec';
 import { selectNavLocation } from './selectors';
 import { fallbackServices } from './services';
@@ -23,10 +35,12 @@ export function navigateToLocation(location, { replace: replaceEntry = false, in
     if (replaceEntry) {
       dispatch(replace(url));
     } else {
-      dispatch(push(url, {
-        parent: { key: current.key ?? null, url: urlOfRouterLocation(current) },
-        ...(interactive ? { interactive: true } : {}),
-      }));
+      dispatch(
+        push(url, {
+          parent: { key: current.key ?? null, url: urlOfRouterLocation(current) },
+          ...(interactive ? { interactive: true } : {}),
+        }),
+      );
     }
   };
 }

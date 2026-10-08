@@ -113,7 +113,9 @@ async function resolveRoot(next, ctx) {
     // (including an open dialog)
     const latest = ctx.latestLocation();
     const target = {
-      ...locationFor(deviceBase(VIEWS.DASHBOARD, device.dongle_id), latest), hash: latest.hash, modal: latest.modal,
+      ...locationFor(deviceBase(VIEWS.DASHBOARD, device.dongle_id), latest),
+      hash: latest.hash,
+      modal: latest.modal,
     };
     ctx.dispatch(replace(buildUrl(target)));
   }

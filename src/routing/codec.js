@@ -169,12 +169,19 @@ function parseBase(parts, pathname) {
   return invalidBase('unknown-path');
 }
 
-// an existing clip's filename is an opaque token: only reject what could
-// escape a path or confuse the device
+// An existing clip's filename is an opaque token: only reject what could
+// escape a path or confuse the device (path separators, control characters).
+// eslint-disable-next-line no-control-regex
+const UNSAFE_FILENAME_CHARACTERS = /[/\\\u0000-\u001f\u007f]/;
+
 function validClipFilename(filename) {
-  // eslint-disable-next-line no-control-regex
-  return typeof filename === 'string' && filename.length > 0 && !/[/\\\u0000-\u001f\u007f]/.test(filename)
-    && filename !== '.' && filename !== '..';
+  return (
+    typeof filename === 'string'
+    && filename.length > 0
+    && !UNSAFE_FILENAME_CHARACTERS.test(filename)
+    && filename !== '.'
+    && filename !== '..'
+  );
 }
 
 // Combine the path's modal (if any) with the modal query arguments and check
@@ -212,8 +219,10 @@ function resolveModal(base, pathModal, args) {
   if (modal.panel != null && (kind !== MODALS.SETTINGS || !SETTINGS_PANELS.includes(modal.panel))) {
     return { reason: 'invalid-modal' };
   }
-  if (modal.clip && (kind !== MODALS.CLIPS || !validClipFilename(modal.clip.filename)
-    || modal.clip.requestedAt === '')) {
+  if (
+    modal.clip
+    && (kind !== MODALS.CLIPS || !validClipFilename(modal.clip.filename) || modal.clip.requestedAt === '')
+  ) {
     return { reason: 'invalid-modal' };
   }
   return { modal };
@@ -306,7 +315,8 @@ function directModalPath(base, modal) {
   switch (modal.kind) {
     case MODALS.SETTINGS:
       return base.view === VIEWS.DASHBOARD && base.dongleId === modal.dongleId
-        ? `/${modal.dongleId}/settings${modal.panel ? `/${modal.panel}` : ''}` : null;
+        ? `/${modal.dongleId}/settings${modal.panel ? `/${modal.panel}` : ''}`
+        : null;
     case MODALS.ADD_DEVICE:
       return base.view === VIEWS.ROOT ? '/devices/add' : null;
     case MODALS.CLIPS:
@@ -338,8 +348,11 @@ export function buildUrl(location) {
   let direct = null;
   if (modal) {
     const { reason } = resolveModal(location.base, null, {
-      modal: modal.kind, modalDevice: modal.dongleId ?? undefined, panel: modal.panel ?? undefined,
-      clip: modal.clip?.filename, clipRequestedAt: modal.clip?.requestedAt ?? undefined,
+      modal: modal.kind,
+      modalDevice: modal.dongleId ?? undefined,
+      panel: modal.panel ?? undefined,
+      clip: modal.clip?.filename,
+      clipRequestedAt: modal.clip?.requestedAt ?? undefined,
     });
     if (reason) throw new Error(`invalid modal: ${modal.kind}`);
     direct = directModalPath(location.base, modal);
@@ -403,15 +416,23 @@ export function sameModal(a, b) {
   const x = a?.modal ?? null;
   const y = b?.modal ?? null;
   if (!x || !y) return x === y;
-  return x.kind === y.kind && x.dongleId === y.dongleId && x.panel === y.panel
-    && x.clip?.filename === y.clip?.filename && x.clip?.requestedAt === y.clip?.requestedAt;
+  return (
+    x.kind === y.kind
+    && x.dongleId === y.dongleId
+    && x.panel === y.panel
+    && x.clip?.filename === y.clip?.filename
+    && x.clip?.requestedAt === y.clip?.requestedAt
+  );
 }
 
 // Whether `modal` may open over `base` (e.g. never over stream).
 export function modalAllowedOn(base, modal) {
   return !resolveModal(base, null, {
-    modal: modal.kind, modalDevice: modal.dongleId ?? undefined, panel: modal.panel ?? undefined,
-    clip: modal.clip?.filename, clipRequestedAt: modal.clip?.requestedAt ?? undefined,
+    modal: modal.kind,
+    modalDevice: modal.dongleId ?? undefined,
+    panel: modal.panel ?? undefined,
+    clip: modal.clip?.filename,
+    clipRequestedAt: modal.clip?.requestedAt ?? undefined,
   }).reason;
 }
 
