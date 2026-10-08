@@ -177,7 +177,7 @@ export class AddDeviceDialog extends Component {
     }
 
     // Initialize detector and camera stream
-    if (cameraRequested && this.videoRef && !this.detector && hasCamera && !pairDongleId) {
+    if (cameraRequested && !this.closing && this.videoRef && !this.detector && hasCamera && !pairDongleId) {
       const attempt = this.cameraAttempt;
       try {
         this.detector = new BarcodeDetector({ formats: ['qr_code'] });
@@ -224,6 +224,7 @@ export class AddDeviceDialog extends Component {
         this.canvasRef.height = height;
 
         const ctx = this.canvasRef.getContext('2d');
+        if (!ctx) return; // no 2d canvas available: skip the corner markers
         ctx.clearRect(0, 0, width, height);
         ctx.strokeStyle = 'white';
 
@@ -254,7 +255,7 @@ export class AddDeviceDialog extends Component {
     }
 
     // Start scanning if conditions are met
-    if (!pairLoading && !pairError && !pairDongleId && this.detector && cameraRequested && hasCamera && !this.scanning) {
+    if (!pairLoading && !pairError && !pairDongleId && this.detector && cameraRequested && !this.closing && hasCamera && !this.scanning) {
       this.startScanning();
     }
   }
@@ -310,6 +311,9 @@ export class AddDeviceDialog extends Component {
   modalClose() {
     const { pairDongleId } = this.state;
 
+    // closing: the dialog may update once more before it unmounts, and must
+    // not start the camera again in that update
+    this.closing = true;
     this.releaseCamera();
 
     if (pairDongleId && this.props.devices.length === 0) {

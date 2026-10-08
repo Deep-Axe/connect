@@ -495,6 +495,29 @@ describe('whole-app behavior', () => {
       expect(history.location.search).toBe('?clip=trip.mp4&clipRequestedAt=222');
     });
 
+    test('closing the pairing dialog stops the camera without starting it again', async () => {
+      const stop = vi.fn();
+      const getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop }] }));
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: { enumerateDevices: vi.fn(async () => [{ kind: 'videoinput' }]), getUserMedia },
+      });
+      const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+      try {
+        const { history } = await renderApp(`/${FIRST}?modal=add-device`);
+        fireEvent.click(await screen.findByRole('button', { name: 'scan QR code with camera' }));
+        await waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(play).toHaveBeenCalled());
+        fireEvent.click(document.querySelector('[class*="MuiBackdrop"]')); // close
+        await waitFor(() => expect(history.location.search).toBe(''));
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+        expect(getUserMedia).toHaveBeenCalledTimes(1);
+        expect(stop).toHaveBeenCalled();
+      } finally {
+        play.mockRestore();
+      }
+    });
+
     test('a camera that arrives after the dialog closed is stopped', async () => {
       let grant;
       const stop = vi.fn();
