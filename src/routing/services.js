@@ -16,7 +16,10 @@ export function createHistoryTracker() {
   const entryOf = (location) => ({ key: location.key ?? null, url: urlOfRouterLocation(location) });
 
   return {
-    reset() { entries = []; index = -1; },
+    reset() {
+      entries = [];
+      index = -1;
+    },
     observe(location, historyAction) {
       const entry = entryOf(location);
       if (index < 0) {
@@ -57,7 +60,10 @@ export function createRoutingServices() {
     navigation: { generation: 0, revision: 0 },
     session: { promise: null },
     requests: {
-      routeQueries: new Map(), routeLatest: new Map(), routeSeq: 0, // route list/detail requests in flight, by query key
+      // Route list/detail requests in flight, by query key.
+      routeQueries: new Map(),
+      routeLatest: new Map(),
+      routeSeq: 0,
     },
     commands: { pairTokens: new Set() },
     uploads: { targets: new Map() },

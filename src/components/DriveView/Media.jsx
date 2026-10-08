@@ -315,7 +315,14 @@ export class Media extends Component {
     const service = this.props.dispatch(getClipService());
     try {
       const clipsSupported = await service.deviceSupportsClips(device);
-      if (this.mounted && service.isActive() && dongleId === this.props.dongleId && device?.openpilot_version === this.props.device?.openpilot_version) this.setState({ clipsSupported });
+      if (
+        this.mounted
+        && service.isActive()
+        && dongleId === this.props.dongleId
+        && device?.openpilot_version === this.props.device?.openpilot_version
+      ) {
+        this.setState({ clipsSupported });
+      }
     } catch (error) {
       // The button stays hidden when Athena is unavailable or too old.
     }
@@ -480,7 +487,9 @@ export class Media extends Component {
     const [countRlog, uploadedRlog, uploadingRlog, pausedRlog, requestedRlog] = this._uploadStats(['logs'], 0, 0, 0, 0, 0);
 
     const camTypes = ['cameras', 'dcameras', 'ecameras'];
-    const [countAll, uploadedAll, uploadingAll, pausedAll, requestedAll] = this._uploadStats(camTypes, countRlog, uploadedRlog, uploadingRlog, pausedRlog, requestedRlog);
+    const [countAll, uploadedAll, uploadingAll, pausedAll, requestedAll] = this._uploadStats(
+      camTypes, countRlog, uploadedRlog, uploadingRlog, pausedRlog, requestedRlog,
+    );
 
     return {
       canRequestAll: countAll - uploadedAll - uploadingAll - requestedAll,

@@ -7,6 +7,18 @@ import { assetCacheFor } from '../resources/assetCache';
 import { runResourceRequest } from '../resources/requests';
 import { fallbackServices } from '../routing/services';
 
+const ASSET_CACHE_TTL_SECONDS = 14 * 24 * 60 * 60;
+
+function assetExpiry() {
+  return Math.floor(Date.now() / 1000) + ASSET_CACHE_TTL_SECONDS;
+}
+
+function reportAssetError(error) {
+  console.error(error);
+  Sentry.captureException(error);
+  return null;
+}
+
 const USE_LOCAL_COORDS_DATA = import.meta.env.VITE_APP_LOCAL_COORDS_DATA === 'true';
 if (USE_LOCAL_COORDS_DATA) {
   console.warn('using local coords data');
@@ -173,11 +185,22 @@ export function fetchEvents(route) {
       if (!isCurrent()) return null;
       const parts = await loadParts(route, api.routeAssets.events, USE_LOCAL_EVENTS_DATA, isCurrent);
       const events = parseEvents(route, [].concat(...parts));
-      if (!USE_LOCAL_EVENTS_DATA) await cache.write('events', route.fullname, Math.floor(Date.now() / 1000) + 86400 * 14, events, route.maxqlog, isCurrent);
+      if (!USE_LOCAL_EVENTS_DATA) {
+        await cache.write('events', route.fullname, assetExpiry(), events, route.maxqlog, isCurrent);
+      }
       return events;
     }, (events, ownership) => {
-      if (events !== null && isCurrent()) dispatch({ type: Types.ACTION_UPDATE_ROUTE_EVENTS, fullname: route.fullname, maxqlog: route.maxqlog, events, epoch: ownership.epoch, requestId: ownership.requestId });
-    }).catch((error) => { console.error(error); Sentry.captureException(error); return null; });
+      if (events !== null && isCurrent()) {
+        dispatch({
+          type: Types.ACTION_UPDATE_ROUTE_EVENTS,
+          fullname: route.fullname,
+          maxqlog: route.maxqlog,
+          events,
+          epoch: ownership.epoch,
+          requestId: ownership.requestId,
+        });
+      }
+    }).catch(reportAssetError);
   };
 }
 
@@ -190,7 +213,10 @@ export function fetchCoord(route, coordinate, locationKey) {
       return getState().sessionEpoch === epoch && current
         && current[`${prefix}_lng`] === route[`${prefix}_lng`] && current[`${prefix}_lat`] === route[`${prefix}_lat`];
     };
-    if (!isCurrent() || (!coordinate[0] && !coordinate[1]) || getState().entities.routes[route.fullname][locationKey]) return Promise.resolve();
+    if (!isCurrent()) return Promise.resolve();
+    const hasCoordinates = Boolean(coordinate[0] || coordinate[1]);
+    const loadedLocation = getState().entities.routes[route.fullname][locationKey];
+    if (!hasCoordinates || loadedLocation) return Promise.resolve();
     const coord = coordinate.map(value => Math.round(value * 1000) / 1000);
     const cache = assetCacheFor(services);
     return runResourceRequest(services, getState, `coords|${route.fullname}|${locationKey}|${JSON.stringify(coord)}`, async () => {
@@ -198,11 +224,22 @@ export function fetchCoord(route, coordinate, locationKey) {
       if (stored !== null) return stored;
       if (!isCurrent()) return null;
       const found = await reverseLookup(coord);
-      if (found) await cache.write('coords', coord, Math.floor(Date.now() / 1000) + 86400 * 14, found, undefined, isCurrent);
+      if (found) {
+        await cache.write('coords', coord, assetExpiry(), found, undefined, isCurrent);
+      }
       return found || null;
     }, (location, ownership) => {
-      if (location && isCurrent()) dispatch({ type: Types.ACTION_UPDATE_ROUTE_LOCATION, fullname: route.fullname, locationKey, location, epoch: ownership.epoch, requestId: ownership.requestId });
-    }).catch((error) => { console.error(error); Sentry.captureException(error); return null; });
+      if (location && isCurrent()) {
+        dispatch({
+          type: Types.ACTION_UPDATE_ROUTE_LOCATION,
+          fullname: route.fullname,
+          locationKey,
+          location,
+          epoch: ownership.epoch,
+          requestId: ownership.requestId,
+        });
+      }
+    }).catch(reportAssetError);
   };
 }
 
@@ -226,11 +263,21 @@ export function fetchDriveCoords(route) {
       if (!isCurrent()) return null;
       const parts = await loadParts(route, api.routeAssets.coords, USE_LOCAL_COORDS_DATA, isCurrent);
       const coords = Object.fromEntries(parts.flat().map(coord => [coord.t, [coord.lng, coord.lat]]));
-      if (!USE_LOCAL_COORDS_DATA) await cache.write('driveCoords', route.fullname, Math.floor(Date.now() / 1000) + 86400 * 14, coords, route.maxqlog, isCurrent);
+      if (!USE_LOCAL_COORDS_DATA) {
+        await cache.write('driveCoords', route.fullname, assetExpiry(), coords, route.maxqlog, isCurrent);
+      }
       return coords;
     }, (driveCoords, ownership) => {
-      if (driveCoords !== null && isCurrent()) dispatch({ type: Types.ACTION_UPDATE_ROUTE, fullname: route.fullname, maxqlog: route.maxqlog,
-        route: { driveCoords, driveCoordsVersion: route.maxqlog }, epoch: ownership.epoch, requestId: ownership.requestId });
-    }).catch((error) => { console.error(error); Sentry.captureException(error); return null; });
+      if (driveCoords !== null && isCurrent()) {
+        dispatch({
+          type: Types.ACTION_UPDATE_ROUTE,
+          fullname: route.fullname,
+          maxqlog: route.maxqlog,
+          route: { driveCoords, driveCoordsVersion: route.maxqlog },
+          epoch: ownership.epoch,
+          requestId: ownership.requestId,
+        });
+      }
+    }).catch(reportAssetError);
   };
 }

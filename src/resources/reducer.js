@@ -2,7 +2,13 @@ import * as Types from '../actions/types';
 import { invalidateRouteQueries } from './invalidateRoutes';
 
 function withQueries(state, name, key, query) {
-  return { ...state, queries: { ...state.queries, [name]: { ...state.queries?.[name], [key]: query } } };
+  return {
+    ...state,
+    queries: {
+      ...state.queries,
+      [name]: { ...state.queries?.[name], [key]: query },
+    },
+  };
 }
 
 function mergeFiles(state, files) {
@@ -40,8 +46,12 @@ export function reduceResources(state, action) {
       Object.assign(files, action.urls);
       const next = { ...state, entities: { ...state.entities, files } };
       return withQueries(next, 'files', action.fullname, {
-        status: 'loaded', fetchedAt: action.fetchedAt, expiresAt: action.expiresAt,
-        fileNames: Object.keys(action.urls), requestId: action.requestId, metadataVersion: action.metadataVersion,
+        status: 'loaded',
+        fetchedAt: action.fetchedAt,
+        expiresAt: action.expiresAt,
+        fileNames: Object.keys(action.urls),
+        requestId: action.requestId,
+        metadataVersion: action.metadataVersion,
       });
     }
     case Types.ACTION_INVALIDATE_FILES: {
@@ -53,7 +63,10 @@ export function reduceResources(state, action) {
     case Types.ACTION_FILES_UPLOADING:
       return {
         ...mergeFiles(state, action.files),
-        uploadQueues: { ...state.uploadQueues, [action.dongleId]: { uploading: action.uploading, fetchedAt: action.fetchedAt } },
+        uploadQueues: {
+          ...state.uploadQueues,
+          [action.dongleId]: { uploading: action.uploading, fetchedAt: action.fetchedAt },
+        },
       };
     case Types.ACTION_FILES_CANCELLED_UPLOADS: {
       const queue = state.uploadQueues?.[action.dongleId];
@@ -71,8 +84,13 @@ export function reduceResources(state, action) {
         if (Object.keys(rest).length) files[item.fileName] = rest;
         else delete files[item.fileName];
       }
-      return { ...state, entities: { ...state.entities, files }, uploadQueues: { ...state.uploadQueues, [action.dongleId]: { ...queue, uploading } } };
+      return {
+        ...state,
+        entities: { ...state.entities, files },
+        uploadQueues: { ...state.uploadQueues, [action.dongleId]: { ...queue, uploading } },
+      };
     }
-    default: return null;
+    default:
+      return null;
   }
 }

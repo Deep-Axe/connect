@@ -12,14 +12,23 @@ export class ClipChangedError extends Error {
   }
 }
 
-export function createClipService({ storage = localforage.createInstance({ name: 'connect', storeName: 'clip_cache' }), ready = Promise.resolve(), isCurrent = () => true, marker = createPurgeMarker('clips') } = {}) {
+export function createClipService({
+  storage = localforage.createInstance({ name: 'connect', storeName: 'clip_cache' }),
+  ready = Promise.resolve(),
+  isCurrent = () => true,
+  marker = createPurgeMarker('clips'),
+} = {}) {
   const activeDownloads = new Map();
   const supportRequests = new Map();
   let disposed = false;
   const writes = new Set();
   const objectUrls = new Set();
   let purgePending = marker.pending();
-  let storageBarrier = Promise.resolve(ready).then((cleared) => { purgePending ||= cleared === false; }, () => { purgePending = true; });
+  let storageBarrier = Promise.resolve(ready).then((cleared) => {
+    purgePending ||= cleared === false;
+  }, () => {
+    purgePending = true;
+  });
   function assertActive() {
     if (disposed || !isCurrent()) throw new Error('Clip service disposed');
   }
@@ -31,7 +40,10 @@ export function createClipService({ storage = localforage.createInstance({ name:
     return value;
   }
   function cacheWrite(operation) {
-    const pending = cacheReady().then(() => { assertActive(); return operation(); }).catch(() => {});
+    const pending = cacheReady().then(() => {
+      assertActive();
+      return operation();
+    }).catch(() => {}); // Cache writes are optional; failed purges remain quarantined.
     writes.add(pending);
     pending.finally(() => writes.delete(pending));
     return pending;
@@ -42,7 +54,12 @@ export function createClipService({ storage = localforage.createInstance({ name:
     if (purgePending) {
       storageBarrier = storageBarrier.then(async () => {
         if (!purgePending) return;
-        try { await storage.clear(); purgePending = !marker.complete(); } catch { /* keep private bytes quarantined */ }
+        try {
+          await storage.clear();
+          purgePending = !marker.complete();
+        } catch {
+          // Keep private bytes quarantined until clearing succeeds.
+        }
       });
       await storageBarrier;
       if (purgePending) throw new Error('Clip cache unavailable');
@@ -67,7 +84,12 @@ export function createClipService({ storage = localforage.createInstance({ name:
         activeDownloads.delete(key);
       }
     }
-    try { await cacheReady(); } catch { assertActive(); return; }
+    try {
+      await cacheReady();
+    } catch {
+      assertActive();
+      return;
+    }
     assertActive();
     const keys = await storage.keys().catch(() => []);
     assertActive();

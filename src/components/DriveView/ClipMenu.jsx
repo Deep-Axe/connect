@@ -432,7 +432,9 @@ class ClipMenu extends Component {
   async downloadViewedClip() {
     const { previewUrl, viewingClip } = this.state;
     if (!previewUrl || !viewingClip) return;
-    const defaultName = `comma-clip-${viewingClip.camera}-${formatTime(viewingClip.source_start_time).replaceAll(':', '-')}-${formatTime(viewingClip.source_end_time).replaceAll(':', '-')}`;
+    const start = formatTime(viewingClip.source_start_time).replaceAll(':', '-');
+    const end = formatTime(viewingClip.source_end_time).replaceAll(':', '-');
+    const defaultName = `comma-clip-${viewingClip.camera}-${start}-${end}`;
     const filename = `${(viewingClip.filename || defaultName).replace(/\.mp4$/i, '')}.mp4`;
     const mobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
     await shareOrDownload({ url: previewUrl, filename, mimeType: 'video/mp4', share: mobile });

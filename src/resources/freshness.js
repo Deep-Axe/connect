@@ -7,7 +7,11 @@ export function fileInventoryExpiry(files, now) {
     if (!Array.isArray(urls)) continue;
     for (const url of urls) {
       let parsed;
-      try { parsed = new URL(url); } catch { return now; }
+      try {
+        parsed = new URL(url);
+      } catch {
+        return now;
+      }
       const expiry = parsed.searchParams.get('se');
       if (expiry == null) continue; // unsigned public assets have no SAS expiry
       const timestamp = Date.parse(expiry);

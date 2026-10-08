@@ -211,7 +211,14 @@ class DeviceInfo extends Component {
     const service = this.props.dispatch(getClipService());
     try {
       const clipsSupported = await service.deviceSupportsClips(device);
-      if (this.mounted && service.isActive() && dongleId === this.props.dongleId && device?.openpilot_version === this.props.device?.openpilot_version) this.setState({ clipsSupported });
+      if (
+        this.mounted
+        && service.isActive()
+        && dongleId === this.props.dongleId
+        && device?.openpilot_version === this.props.device?.openpilot_version
+      ) {
+        this.setState({ clipsSupported });
+      }
     } catch (error) {
       // The button stays hidden when Athena is unavailable or too old.
     }

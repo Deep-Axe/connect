@@ -115,7 +115,6 @@ export function endSession() {
   };
 }
 
-
 // Navigation must wait for the physical cache clear as well as credentials.
 // Capturing the resulting epoch prevents an old logout redirecting a new login.
 export function logOutSession({ returnTo = null } = {}) {

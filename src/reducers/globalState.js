@@ -347,7 +347,12 @@ export default function reducer(_state, action) {
         delete routes[action.fullname];
         state = withRoutes(state, routes);
       }
-      if (action.route) state = withRoutes(state, mergeRoutes(state.entities.routes, [action.route], action.requestId, action.fetchedAt, state.queries.routeDetails));
+      if (action.route) {
+        const routes = mergeRoutes(
+          state.entities.routes, [action.route], action.requestId, action.fetchedAt, state.queries.routeDetails,
+        );
+        state = withRoutes(state, routes);
+      }
       state.queries = {
         ...state.queries,
         routeDetails: {

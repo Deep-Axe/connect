@@ -21,9 +21,17 @@ export function createAssetCache(indexedDB = globalThis.indexedDB, marker = crea
     if (!indexedDB) return Promise.resolve(null);
     if (!database) database = new Promise((resolve) => {
       let settled = false;
-      const finish = (db) => { settled = true; resolve(db); };
+      const finish = (db) => {
+        settled = true;
+        resolve(db);
+      };
       let request;
-      try { request = indexedDB.open('cacheDB', 2); } catch { finish(null); return; }
+      try {
+        request = indexedDB.open('cacheDB', 2);
+      } catch {
+        finish(null);
+        return;
+      }
       request.onerror = () => finish(null);
       request.onblocked = () => finish(null);
       request.onupgradeneeded = () => {
@@ -36,12 +44,28 @@ export function createAssetCache(indexedDB = globalThis.indexedDB, marker = crea
       };
       request.onsuccess = () => {
         const db = request.result;
-        if (settled) { db.close(); return; }
-        if (STORES.some(name => !db.objectStoreNames.contains(name))) { db.close(); finish(null); return; }
-        db.onversionchange = () => { db.close(); database = null; };
+        if (settled) {
+          db.close();
+          return;
+        }
+        if (STORES.some((name) => !db.objectStoreNames.contains(name))) {
+          db.close();
+          finish(null);
+          return;
+        }
+        db.onversionchange = () => {
+          db.close();
+          database = null;
+        };
         // No timer and no first-store flag: prune every store on each open.
         let transaction;
-        try { transaction = db.transaction(STORES, 'readwrite'); } catch { db.close(); finish(null); return; }
+        try {
+          transaction = db.transaction(STORES, 'readwrite');
+        } catch {
+          db.close();
+          finish(null);
+          return;
+        }
         for (const name of STORES) {
           const store = transaction.objectStore(name);
           const cursorRequest = store.openCursor();
@@ -72,7 +96,9 @@ export function createAssetCache(indexedDB = globalThis.indexedDB, marker = crea
       for (const name of STORES) transaction.objectStore(name).clear();
       await transactionDone(transaction);
       purgePending = !marker.complete();
-    }).catch(() => {});
+    }).catch(() => {
+      // Retain the purge obligation; a later access retries clearing.
+    });
     return barrier;
   };
   const readyDatabase = async () => {
@@ -95,11 +121,15 @@ export function createAssetCache(indexedDB = globalThis.indexedDB, marker = crea
           if (!record) return;
           if (expired(record)) {
             store.delete(key);
-          } else if ((version === undefined || record.version === version) && owner === generation && isCurrent()) value = record.data;
+          } else if ((version === undefined || record.version === version) && owner === generation && isCurrent()) {
+            value = record.data;
+          }
         };
         await transactionDone(transaction);
         return owner === generation && isCurrent() ? value : null;
-      } catch { return null; }
+      } catch {
+        return null;
+      }
     },
 
     async write(storeName, key, expiry, data, version, isCurrent = () => true) {
@@ -119,7 +149,9 @@ export function createAssetCache(indexedDB = globalThis.indexedDB, marker = crea
         };
         await transactionDone(transaction);
         return owner === generation && isCurrent();
-      } catch { return false; }
+      } catch {
+        return false;
+      }
     },
 
     clear() {
