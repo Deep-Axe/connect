@@ -29,9 +29,8 @@ function createHarness(openpilotVersion) {
   return { dispatch, actions };
 }
 
-const markedOffline = (actions) => actions.some((action) => (
-  action.type === Types.ACTION_UPDATE_DEVICE_ONLINE && action.last_athena_ping === 0
-));
+const markedOffline = (actions) =>
+  actions.some((action) => action.type === Types.ACTION_UPDATE_DEVICE_ONLINE && action.last_athena_ping === 0);
 
 beforeEach(() => {
   vi.clearAllMocks();

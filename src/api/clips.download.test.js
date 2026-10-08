@@ -1,27 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  athena: vi.fn(),
-  getItem: vi.fn(),
-  setItem: vi.fn(),
-  stored: new Map()
-}));
+const mocks = vi.hoisted(() => ({ athena: vi.fn(), getItem: vi.fn(), setItem: vi.fn(), stored: new Map() }));
 
-vi.mock('../api', () => ({
-  athena: {
-    postJsonRpcPayload: mocks.athena
-  }
-}));
+vi.mock('../api', () => ({ athena: { postJsonRpcPayload: mocks.athena } }));
 
 vi.mock('localforage', () => ({
   default: {
     createInstance: () => ({
       getItem: mocks.getItem,
       setItem: mocks.setItem,
-      removeItem: async key => mocks.stored.delete(key),
-      keys: async () => [...mocks.stored.keys()]
-    })
-  }
+      removeItem: async (key) => mocks.stored.delete(key),
+      keys: async () => [...mocks.stored.keys()],
+    }),
+  },
 }));
 
 const D = 'aaaaaaaaaaaaaaaa';
@@ -38,26 +29,23 @@ beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
   mocks.stored.clear();
-  mocks.getItem.mockImplementation(async key => mocks.stored.get(key) ?? null);
+  mocks.getItem.mockImplementation(async (key) => mocks.stored.get(key) ?? null);
   mocks.setItem.mockImplementation(async (key, value) => {
     mocks.stored.set(key, value);
   });
-  mocks.athena.mockResolvedValue({
-    result: {
-      size: 3,
-      offset: 0,
-      data: btoa('abc')
-    }
-  });
+  mocks.athena.mockResolvedValue({ result: { size: 3, offset: 0, data: btoa('abc') } });
   URL.createObjectURL = vi.fn(() => 'blob:review');
 });
 
 describe('adversarial clip lifecycle', () => {
   it('release during async cache lookup prevents later download/cache installation', async () => {
     let resolveLookup;
-    mocks.getItem.mockImplementationOnce(() => new Promise(r => {
-      resolveLookup = r;
-    }));
+    mocks.getItem.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveLookup = r;
+        }),
+    );
     const { createClipService } = await import('./clips');
     const clipDevice = createClipService();
     const progress = vi.fn();
@@ -66,12 +54,9 @@ describe('adversarial clip lifecycle', () => {
     await flush();
     resolveLookup(null);
     await pending.catch(() => null);
-    expect({
-      chunks: mocks.athena.mock.calls.length,
-      cacheWrites: mocks.setItem.mock.calls.length
-    }).toEqual({
+    expect({ chunks: mocks.athena.mock.calls.length, cacheWrites: mocks.setItem.mock.calls.length }).toEqual({
       chunks: 0,
-      cacheWrites: 0
+      cacheWrites: 0,
     });
   });
 
@@ -86,9 +71,12 @@ describe('adversarial clip lifecycle', () => {
 
   it('two consumers share bytes and releasing one preserves the other', async () => {
     let resolveChunk;
-    mocks.athena.mockImplementationOnce(() => new Promise(r => {
-      resolveChunk = r;
-    }));
+    mocks.athena.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveChunk = r;
+        }),
+    );
     const { createClipService } = await import('./clips');
     const clipDevice = createClipService();
     const first = vi.fn(),
@@ -97,13 +85,7 @@ describe('adversarial clip lifecycle', () => {
     const b = clipDevice.getClipUrl(D, 'shared.mp4', 1, second, async () => true);
     await flush();
     clipDevice.releaseClip(D, 'shared.mp4', 1, first);
-    resolveChunk({
-      result: {
-        size: 3,
-        offset: 0,
-        data: btoa('abc')
-      }
-    });
+    resolveChunk({ result: { size: 3, offset: 0, data: btoa('abc') } });
     await expect(b).resolves.toBe('blob:review');
     await a;
     expect(first).not.toHaveBeenCalled();
@@ -113,23 +95,20 @@ describe('adversarial clip lifecycle', () => {
 
   it('release after download starts discards bytes before persisting', async () => {
     let resolveChunk;
-    mocks.athena.mockImplementationOnce(() => new Promise(r => {
-      resolveChunk = r;
-    }));
+    mocks.athena.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveChunk = r;
+        }),
+    );
     const { createClipService } = await import('./clips');
     const clipDevice = createClipService();
     const progress = vi.fn();
     const pending = clipDevice.getClipUrl(D, 'cancel.mp4', 1, progress, async () => true);
-    const rejection = pending.catch(error => error);
+    const rejection = pending.catch((error) => error);
     await flush();
     clipDevice.releaseClip(D, 'cancel.mp4', 1, progress);
-    resolveChunk({
-      result: {
-        size: 3,
-        offset: 0,
-        data: btoa('abc')
-      }
-    });
+    resolveChunk({ result: { size: 3, offset: 0, data: btoa('abc') } });
     expect((await rejection).message).toContain('cancelled');
     expect(mocks.setItem).not.toHaveBeenCalled();
   });

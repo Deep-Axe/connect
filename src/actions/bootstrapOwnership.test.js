@@ -28,15 +28,15 @@ vi.mock('../api', () => ({
   billing: { configure: vi.fn() },
 }));
 
-vi.mock('../utils/webrtc', () => ({
-  webrtcConnectionManager: { disconnect: vi.fn() },
-}));
+vi.mock('../utils/webrtc', () => ({ webrtcConnectionManager: { disconnect: vi.fn() } }));
 
 vi.mock('../utils/navigation', () => ({ hardNavigate: mocks.navigate }));
 
 function deferred() {
   let resolve;
-  const promise = new Promise((complete) => { resolve = complete; });
+  const promise = new Promise((complete) => {
+    resolve = complete;
+  });
   return { promise, resolve };
 }
 
