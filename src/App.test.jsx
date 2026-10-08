@@ -192,8 +192,10 @@ async function mockFetch(input, init = {}) {
     if (listed) return json(listed);
     return json({ alias: 'Shared device', dongle_id: dongleId, device_type: 'threex', is_owner: false, prime: false });
   }
-  if (url.pathname.endsWith('/prime/cancel')) return json({ success: true });
-  if (url.pathname.endsWith('/subscription')) return json(options.subscription ?? null);
+  if (url.pathname.endsWith('/prime/cancel')) return options.cancelReply ?? json({ success: true });
+  if (url.pathname.endsWith('/subscription')) {
+    return json(options.subscriptions?.[url.searchParams.get('dongle_id')] ?? options.subscription ?? null);
+  }
   if (url.pathname.endsWith('/subscribe_info')) return json(null);
   if (url.pathname.endsWith('/events.json') || url.pathname.endsWith('/coords.json')) return json([]);
   if (url.pathname.endsWith('/files') || url.pathname.endsWith('/preserved'))
@@ -713,6 +715,42 @@ describe('whole-app behavior', () => {
       expect(await screen.findByText('Page not found')).toBeVisible();
     });
   });
+  test('a completed cancellation refreshes its device after navigation', async () => {
+    let finishCancel;
+    const subscription = {
+      user_id: 'test-user',
+      plan: 'data',
+      amount: 2400,
+      cancel_at: null,
+      next_charge_at: 1_900_000_000,
+      subscribed_at: 1_700_000_000,
+    };
+    const subscriptions = { [FIRST]: subscription, [SECOND]: subscription };
+    const cancelReply = new Promise((resolve) => {
+      finishCancel = resolve;
+    });
+    const { history, store } = await renderApp(`/${FIRST}/prime/cancel`, {
+      devices: devices.map((device) => ({ ...device, prime: true })),
+      subscriptions,
+      cancelReply,
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel subscription' }));
+    await waitFor(() => expect(mocks.requests.some(({ url }) => url.endsWith('/prime/cancel'))).toBe(true));
+    act(() => {
+      history.push(`/${SECOND}/prime`);
+    });
+    await waitFor(() => expect(store.getState().queries.subscriptions[SECOND]?.subscription).toBeTruthy());
+    subscriptions[FIRST] = { ...subscription, cancel_at: 1_850_000_000 };
+    await act(async () => {
+      finishCancel(await json({ success: true }));
+    });
+    await waitFor(() =>
+      expect(store.getState().queries.subscriptions[FIRST].subscription.cancel_at).toBe(1_850_000_000),
+    );
+    expect(store.getState().queries.subscriptions[SECOND].subscription.cancel_at).toBeNull();
+    expect(history.location.pathname).toBe(`/${SECOND}/prime`);
+  });
+
   test('adversarial Prime device transition uses the destination plan', async () => {
     const primeDevices = devices.map((device) => ({ ...device, prime: true, prime_type: 2 }));
     const subscription = {

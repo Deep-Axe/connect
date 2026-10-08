@@ -339,6 +339,7 @@ export class PrimeManage extends Component {
   }
 
   cancelPrime() {
+    const { dongleId } = this.props;
     // The dialog lease gates the confirmation UI. The session lease gates the
     // cache refresh: closing the dialog changes the URL, but the cancellation
     // already happened and this device's subscription must be reloaded.
@@ -347,14 +348,13 @@ export class PrimeManage extends Component {
     if (!dialog.active()) return undefined;
     this.setState({ canceling: true });
     this.props.dispatch(analyticsEvent('prime_cancel', { plan: this.props.subscription.plan }));
-    return Billing.cancelPrime(this.props.dongleId).then((resp) => {
+    return Billing.cancelPrime(dongleId).then((resp) => {
       if (!session.isCurrent()) return;
       if (resp?.success) {
         if (dialog.active()) {
           this.setState({ canceling: false, cancelError: null, cancelSuccess: 'Cancelled subscription.' });
         }
-        this.fetchSubscription();
-        return;
+        return this.fetchSubscription(false, dongleId);
       }
       if (!dialog.active()) return;
       if (resp?.error) {
@@ -384,9 +384,8 @@ export class PrimeManage extends Component {
 
   async switchPlan() {
     const { dongleId, subscription } = this.props;
-    const dialog = this.captureLease(true);
+    const lease = this.captureLease(true);
     const session = this.props.dispatch(captureOperation());
-    const lease = dialog;
     if (!lease.active()) return;
     const plan = this.state.planSwitchTarget || otherPrimePlan(subscription.plan);
     const planName = primePlanName(plan);
@@ -406,10 +405,10 @@ export class PrimeManage extends Component {
         error.code = 'unexpected_response';
         throw error;
       }
-      if (dialog.active()) {
+      if (lease.active()) {
         lease.dispatch(analyticsEvent('prime_switch_plan', { from: subscription.plan, to: plan }));
       }
-      await this.fetchSubscription();
+      await this.fetchSubscription(false, dongleId);
       if (lease.active()) {
         this.setState({
           planSwitchStatus: 'success',
@@ -459,14 +458,13 @@ export class PrimeManage extends Component {
     }
   }
 
-  async fetchSubscription(repeat = false) {
-    const { dongleId } = this.props;
+  async fetchSubscription(repeat = false, dongleId = this.props.dongleId) {
     // Reload even if the confirmation dialog has closed. Retrying the read
     // still requires this page to be the one showing this device.
     const lease = this.captureLease();
     try {
       const subscription = await this.props.dispatch(refreshSubscription(dongleId));
-      if (!this.mounted || !lease.isCurrent()) return;
+      if (!lease.active() || this.props.dongleId !== dongleId) return;
       if (!subscription?.user_id) {
         this.scheduleRefresh(() => this.fetchSubscription(true), lease);
       }
