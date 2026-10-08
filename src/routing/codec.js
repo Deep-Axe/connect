@@ -1,14 +1,6 @@
-// The URL grammar. This is the only module that knows URL shapes: everything
-// else asks it to parse a location into a destination or build one back.
-//
-// A parsed location is
-//   { base, modal, commands, extensions, hash }
-// where `base` is the page being shown:
-//   { view, dongleId, drive, legacyRange, reason }
-// and drive bounds are milliseconds relative to the route start, always
-// whole seconds (the URL carries seconds). `commands` are one-shot query
-// arguments consumed by services (pair, r, stripe, auth); `extensions` are
-// unknown query arguments preserved in order but never executed.
+// Parse and build URLs as { base, modal, commands, extensions, hash }.
+// Drive bounds use route-relative milliseconds aligned to whole seconds.
+// Commands are consumed once; unknown query arguments retain their order.
 
 import { DEMO_DONGLE_ID } from '../api/demo';
 import { config as AuthConfig } from '@commaai/my-comma-auth';

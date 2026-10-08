@@ -1,11 +1,5 @@
-// The single URL → state path. Every router location (the initial one,
-// PUSH, POP and REPLACE) goes through here exactly once:
-//
-//   LOCATION_CHANGE → router reducer → parseLocation → canonical? →
-//   NAVIGATION_COMMITTED (pure reducers) → runNavigationEffects (async work)
-//
-// The commit is synchronous because ConnectedRouter dispatches the initial
-// location while rendering; effects run after the current render.
+// Reconcile initial, PUSH, POP and REPLACE locations once.
+// Forward to the router, parse/canonicalize, commit navigation, then defer effects.
 
 import { LOCATION_CHANGE, replace } from 'connected-react-router';
 
@@ -43,26 +37,18 @@ export function createRoutingMiddleware(services) {
 
     const location = parseLocation(routerLocation);
     const canonical = buildUrl(location);
-    // a non-canonical entry deferred its effects to the next location on the
-    // same page: its own rewrite, or a newer one that superseded it
+    // Resume deferred effects at the canonical or newer same-page location.
     const pending = services.navigation.pendingCanonical;
     const resumed = Boolean(pending && sameBase(pending.location, location));
     const samePage = !resumed && sameBase(previous, location) && Object.keys(location.commands).length === 0;
-    // Two counters, two questions:
-    //  - generation: is this still the same page? Advanced only when the page
-    //    changes; guards loads and redirects (a query/hash-only change, such
-    //    as consuming a command, keeps them valid).
-    //  - revision: is this still the exact location? Advanced on every
-    //    commit; guards rewrites of the URL itself.
+    // Generation guards page effects; revision guards exact-location rewrites.
     if (!samePage) services.navigation.generation += 1;
     services.navigation.revision += 1;
     const { generation, revision } = services.navigation;
     store.dispatch({ type: NAVIGATION_COMMITTED, location, previous, generation, at: Date.now() });
 
     if (canonical && canonical !== urlOfRouterLocation(routerLocation)) {
-      // trailing slash, aliases (/demo), non-canonical numbers: rewrite the
-      // URL first and run effects once, for the canonical location, against
-      // the state from before this non-canonical entry
+      // Canonicalize first; run effects once with the original predecessor state.
       services.navigation.pendingCanonical = resumed ? pending : { location, previous, previousDongleId };
       afterRender(() => {
         // any newer location, even on the same page, wins over this rewrite
