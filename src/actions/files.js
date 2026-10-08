@@ -134,59 +134,80 @@ export function fetchFiles(routeName, nocache = false) {
   };
 }
 
-// The upload queue poll is per store (services.uploads): `inFlight` while a
-// request is out, `timer` for the next poll. Stopping clears the timer and
-// bumps `run`, so a request already out doesn't schedule another. Polling is
-// shared by owners (an open queue, a drive's download menu) and stops when
-// the last one lets go.
-function stopUploadQueueTimer(services) {
-  if (services.uploads.timer) clearTimeout(services.uploads.timer);
-  services.uploads.timer = null;
-  services.uploads.run += 1;
+// Upload queue polls, per store and per device (services.uploads.targets):
+// `inFlight` while a request is out, `timer` for the next poll, `owners`
+// (an open queue, a drive's download menu) that want it. Stopping clears the
+// timer and bumps `run`, so a request already out doesn't schedule another.
+// Each device has its own poll, so B's queue can load over A's drive while
+// A's menu keeps polling A.
+function uploadTarget(services, dongleId) {
+  let target = services.uploads.targets.get(dongleId);
+  if (!target) {
+    target = { inFlight: false, timer: null, run: 0, owners: new Set() };
+    services.uploads.targets.set(dongleId, target);
+  }
+  return target;
+}
+
+function stopUploadTarget(target) {
+  if (target.timer) clearTimeout(target.timer);
+  target.timer = null;
+  target.run += 1;
+}
+
+export function stopAllUploadQueuePolls(services) {
+  services.uploads.targets.forEach(stopUploadTarget);
 }
 
 export function pollUploadQueue(owner, dongleId) {
   return (dispatch, getState, services = fallbackServices) => {
-    services.uploads.owners.add(owner);
+    uploadTarget(services, dongleId).owners.add(owner);
     dispatch(fetchUploadQueue(dongleId));
   };
 }
 
 export function stopPollingUploadQueue(owner) {
   return (dispatch, getState, services = fallbackServices) => {
-    services.uploads.owners.delete(owner);
-    if (services.uploads.owners.size === 0) stopUploadQueueTimer(services);
+    services.uploads.targets.forEach((target) => {
+      if (target.owners.delete(owner) && target.owners.size === 0) stopUploadTarget(target);
+    });
   };
 }
 
-export function uploadQueuePollers() {
-  return (dispatch, getState, services = fallbackServices) => services.uploads.owners.size;
+export function uploadQueuePollers(dongleId = null) {
+  return (dispatch, getState, services = fallbackServices) => {
+    if (dongleId) return services.uploads.targets.get(dongleId)?.owners.size ?? 0;
+    let count = 0;
+    services.uploads.targets.forEach((target) => { count += target.owners.size; });
+    return count;
+  };
 }
 
 export function cancelFetchUploadQueue() {
-  return (dispatch, getState, services = fallbackServices) => stopUploadQueueTimer(services);
+  return (dispatch, getState, services = fallbackServices) => stopAllUploadQueuePolls(services);
 }
 
 export function fetchUploadQueue(dongleId) {
   return async (rawDispatch, getState, services = fallbackServices) => {
     const dispatch = ownedDispatch(rawDispatch, getState);
-    if (services.uploads.inFlight || services.uploads.timer) {
+    const target = uploadTarget(services, dongleId);
+    if (target.inFlight || target.timer) {
       return;
     }
-    services.uploads.inFlight = true;
-    const { run } = services.uploads;
+    target.inFlight = true;
+    const { run } = target;
     const epoch = getState().sessionEpoch;
     try {
-      await pollUploadQueueOnce(dongleId, dispatch, getState, services, () => (
-        getState().sessionEpoch === epoch && services.uploads.run === run
+      await pollUploadQueueOnce(dongleId, dispatch, getState, target, () => (
+        getState().sessionEpoch === epoch && target.run === run
       ));
     } finally {
-      services.uploads.inFlight = false;
+      target.inFlight = false;
     }
   };
 }
 
-async function pollUploadQueueOnce(dongleId, dispatch, getState, services, stillWanted) {
+async function pollUploadQueueOnce(dongleId, dispatch, getState, target, stillWanted) {
   dispatch(fetchDeviceNetworkStatus(dongleId));
 
   const payload = {
@@ -205,11 +226,8 @@ async function pollUploadQueueOnce(dongleId, dispatch, getState, services, still
   }
   dispatch(updateDeviceOnline(dongleId, Math.floor(Date.now() / 1000)));
 
-  // only for the selected device; work on a copy of the previous snapshot
-  if (getState().dongleId !== dongleId) {
-    return;
-  }
-  const prevFilesUploading = { ...getState().filesUploading };
+  // this device's previous snapshot, copied
+  const prevFilesUploading = { ...getState().uploadQueues?.[dongleId]?.uploading };
   const device = getDeviceFromState(getState(), dongleId);
   const uploadingFiles = {};
   const newCurrentUploading = {};
@@ -246,13 +264,15 @@ async function pollUploadQueueOnce(dongleId, dispatch, getState, services, still
     dongleId,
     uploading: newCurrentUploading,
     files: uploadingFiles,
+    fetchedAt: Date.now(),
   });
-  // keep polling while something is uploading
-  if (uploadQueue.result.length) {
-    services.uploads.timer = setTimeout(() => {
-      services.uploads.timer = null;
-      // stop polling a device that is no longer selected
-      if (getState().dongleId === dongleId) dispatch(fetchUploadQueue(dongleId));
+  // keep polling while something is uploading and someone is watching this
+  // device (an open queue or menu, or it is the selected device)
+  const watched = () => target.owners.size > 0 || getState().dongleId === dongleId;
+  if (uploadQueue.result.length && watched()) {
+    target.timer = setTimeout(() => {
+      target.timer = null;
+      if (watched()) dispatch(fetchUploadQueue(dongleId));
     }, 2000);
   }
 }

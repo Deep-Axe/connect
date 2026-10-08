@@ -281,13 +281,25 @@ class ClipMenu extends Component {
     if (!clip) {
       this.showPreviewProblem(named.length ? 'This clip changed on the device since the link was made.' : 'This clip is no longer on the device.');
     } else if (clip.status !== 'ready') {
+      // not final: look again on the next metadata poll
+      this.loadedPreviewKey = null;
       this.showPreviewProblem('This clip is still being made.');
     } else {
       this.loadPreview(clip);
     }
   }
 
+  // stop wanting the clip bytes this dialog asked for (cancels the download
+  // when nobody else wants them)
+  releaseDownload() {
+    if (!this.download) return;
+    const { dongleId, filename, requestedAt, onProgress } = this.download;
+    clipDevice.releaseClip(dongleId, filename, requestedAt, onProgress);
+    this.download = null;
+  }
+
   showPreviewProblem(previewProblem) {
+    this.releaseDownload();
     this.previewRequest += 1;
     if (this.state.previewUrl) URL.revokeObjectURL(this.state.previewUrl);
     this.setState({ viewingClip: null, previewingClip: null, previewUrl: null, previewProgress: 0, previewProblem });
@@ -316,6 +328,7 @@ class ClipMenu extends Component {
   componentWillUnmount() {
     this.mounted = false;
     this.previewRequest += 1;
+    this.releaseDownload();
     this.stopPolling();
     if (this.state.previewUrl) URL.revokeObjectURL(this.state.previewUrl);
   }
@@ -419,9 +432,15 @@ class ClipMenu extends Component {
     if (this.mounted) this.setState({ deleteDialogOpen: !deleted, deleting: false });
   }
 
-  // a user asked to watch a clip: put its exact version in the URL
+  // a user asked to watch a clip: put its exact version in the URL, or, when
+  // that is already the URL (a failed attempt), try again
   openViewer(clip) {
     if (!this.props.deviceOnline) return;
+    const { preview } = this.props;
+    if (preview?.filename === clip.filename && preview?.requestedAt === clipVersion(clip)) {
+      this.loadPreview(clip);
+      return;
+    }
     this.props.onPreview(clip);
   }
 
@@ -440,10 +459,14 @@ class ClipMenu extends Component {
       const { clips } = await clipDevice.getClipState(dongleId, {});
       return clips.some((c) => c.filename === clip.filename && clipVersion(c) === version && c.status === 'ready');
     };
+    this.releaseDownload();
+    const onProgress = (loaded, total) => {
+      if (this.mounted && request === this.previewRequest) this.setState({ previewProgress: loaded / total });
+    };
+    this.download = { dongleId, filename: clip.filename, requestedAt: clip.requested_at, onProgress };
     try {
-      const previewUrl = await clipDevice.getClipUrl(dongleId, clip.filename, clip.requested_at, (loaded, total) => {
-        if (this.mounted && request === this.previewRequest) this.setState({ previewProgress: loaded / total });
-      }, isCurrentVersion);
+      const previewUrl = await clipDevice.getClipUrl(dongleId, clip.filename, clip.requested_at, onProgress, isCurrentVersion);
+      if (this.download?.onProgress === onProgress) this.download = null; // finished: nothing to release
       if (!this.mounted || request !== this.previewRequest || this.state.previewingClip !== clip.filename) {
         URL.revokeObjectURL(previewUrl);
         return;
@@ -465,6 +488,7 @@ class ClipMenu extends Component {
         if (err instanceof ClipChangedError) {
           this.showPreviewProblem('This clip changed on the device since the link was made.');
         } else {
+          // not retried automatically; clicking the clip again retries
           this.setState({ previewingClip: null, previewProgress: 0, error: err.message || 'Could not preview clip' });
         }
       }
@@ -472,6 +496,7 @@ class ClipMenu extends Component {
   }
 
   closeViewer() {
+    this.releaseDownload();
     this.previewRequest += 1;
     if (this.state.previewUrl) URL.revokeObjectURL(this.state.previewUrl);
     this.setState({ viewingClip: null, previewingClip: null, previewUrl: null, previewProgress: 0, previewProblem: null });

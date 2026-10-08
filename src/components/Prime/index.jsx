@@ -5,6 +5,7 @@ import { Typography } from '@material-ui/core';
 import PrimeManage from './PrimeManage';
 import PrimeCheckout from './PrimeCheckout';
 import UnavailableDialog from '../utils/UnavailableDialog';
+import { MODALS } from '../../routing/codec';
 import { closeModal } from '../../routing/navigate';
 import { selectNavLocation } from '../../routing/selectors';
 
@@ -16,7 +17,11 @@ const CloseOnMount = ({ onMount }) => {
 const Prime = (props) => {
   // the Stripe redirect's result, consumed from the URL by the navigation effects
   const { device, dispatch, modal, profile, stripeResult } = props;
-  const wasSubscribed = useRef(false);
+  // the device last seen with a subscription on this page
+  const subscribedDevice = useRef(null);
+  // only Prime's own dialogs depend on the subscription; any other dialog
+  // over this page belongs to ModalHost
+  const primeDialog = modal === MODALS.PRIME_CANCEL || modal === MODALS.PRIME_CHANGE_PLAN;
   const stripeCancelled = stripeResult?.cancelled ?? null;
   const stripeSuccess = stripeResult?.success ?? null;
 
@@ -28,7 +33,7 @@ const Prime = (props) => {
     return (<Typography>No access</Typography>);
   }
   if (device.prime || stripeSuccess) {
-    wasSubscribed.current = true;
+    subscribedDevice.current = device.dongle_id;
     return (<PrimeManage stripeSuccess={ stripeSuccess } />);
   }
   return (
@@ -36,7 +41,7 @@ const Prime = (props) => {
       <PrimeCheckout stripeCancelled={ stripeCancelled } />
       {/* cancel / change-plan links need an existing subscription; once one
           ends while its dialog is open, the dialog just closes */}
-      {modal && (wasSubscribed.current
+      {primeDialog && (subscribedDevice.current === device.dongle_id
         ? <CloseOnMount onMount={() => dispatch(closeModal())} />
         : <UnavailableDialog message="This device has no comma prime subscription." onClose={() => dispatch(closeModal())} />)}
     </>

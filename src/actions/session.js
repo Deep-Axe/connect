@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/react';
 
 import { api } from '../api/backend';
 import { fallbackServices } from '../routing/services';
+import { stopAllUploadQueuePolls } from './files';
 
 import { ACTION_SESSION_ENDED, ACTION_STARTUP_DATA } from './types';
 
@@ -85,9 +86,7 @@ export function endSession() {
     services.requests.coords.clear();
     services.requests.driveCoords.clear();
     services.commands.pairTokens.clear();
-    if (services.uploads.timer) clearTimeout(services.uploads.timer);
-    services.uploads.timer = null;
-    services.uploads.run += 1;
+    stopAllUploadQueuePolls(services);
     Sentry.setUser(null);
     dispatch({ type: ACTION_SESSION_ENDED });
   };

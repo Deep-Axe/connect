@@ -175,11 +175,10 @@ class UploadQueue extends Component {
   }
 
   render() {
-    const { device, classes, filesUploading, filesUploadingMeta } = this.props;
+    const { device, classes, filesUploading, hasData } = this.props;
     const { cancelQueue, windowWidth, windowHeight } = this.state;
 
     const deviceOffline = !deviceIsOnline(device);
-    const hasData = filesUploadingMeta.dongleId === device.dongle_id;
     const hasUploading = !deviceOffline && hasData && Object.keys(filesUploading).length > 0;
     const logNameLength = windowWidth < 600 ? 4 : 64;
     const segmentNameStyle = windowWidth < 450 ? { fontSize: windowWidth < 400 ? '0.8rem' : '0.9rem' } : {};
@@ -297,9 +296,15 @@ class UploadQueue extends Component {
   }
 }
 
-const stateToProps = (state) => ({
-  filesUploading: state.filesUploading,
-  filesUploadingMeta: state.filesUploadingMeta,
-});
+const NO_UPLOADS = {};
+
+// this queue's own device, which need not be the selected one
+const stateToProps = (state, { device }) => {
+  const queue = state.uploadQueues?.[device.dongle_id];
+  return {
+    filesUploading: queue?.uploading ?? NO_UPLOADS,
+    hasData: Boolean(queue),
+  };
+};
 
 export default connect(stateToProps)(withStyles(styles)(UploadQueue));

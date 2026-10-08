@@ -10,7 +10,7 @@ import { billing as Billing } from '../../api';
 import Colors from '../../colors';
 import { subscribeWindowSize } from '../../hooks/window';
 import { ErrorOutline, InfoOutline, KeyboardBackspaceIcon, PriorityHighIcon } from '../../icons';
-import { primeGetSubscription, analyticsEvent } from '../../actions';
+import { analyticsEvent, leaveForExternalUrl, refreshSubscription } from '../../actions';
 import { MODALS, modalOf } from '../../routing/codec';
 import { closeModal, leavePage, openModal } from '../../routing/navigate';
 import { selectNavLocation } from '../../routing/selectors';
@@ -301,8 +301,8 @@ export class PrimeManage extends Component {
   async gotoUpdate() {
     this.props.dispatch(analyticsEvent('prime_stripe_update', { plan: this.props.subscription.plan }));
     try {
-      const resp = await Billing.getStripePortal(this.props.dongleId);
-      window.location = resp.url;
+      const { dongleId } = this.props;
+      await this.props.dispatch(leaveForExternalUrl(async () => (await Billing.getStripePortal(dongleId)).url));
     } catch (err) {
       // TODO show error messages
       console.error(err);
@@ -382,10 +382,9 @@ export class PrimeManage extends Component {
       return;
     }
     try {
-      const subscription = await Billing.getSubscription(dongleId);
-      if (subscription.user_id) {
-        this.props.dispatch(primeGetSubscription(dongleId, subscription));
-      } else {
+      const subscription = await this.props.dispatch(refreshSubscription(dongleId));
+      if (!this.mounted) return;
+      if (!subscription?.user_id) {
         setTimeout(() => this.fetchSubscription(true), 2000);
       }
     } catch (err) {

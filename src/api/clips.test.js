@@ -48,3 +48,19 @@ describe('clip bytes are tied to the version the link names', () => {
     expect(athena.postJsonRpcPayload).not.toHaveBeenCalledWith(D, expect.objectContaining({ method: 'getClipChunk' }));
   });
 });
+
+describe('clip downloads belong to the dialogs that asked for them', () => {
+  it('releasing the last consumer cancels the download and caches nothing', async () => {
+    let answer;
+    athena.postJsonRpcPayload.mockImplementation(async (_dongleId, { method }) => (
+      method === 'getClipChunk' ? new Promise((resolve) => { answer = resolve; }) : { result: {} }
+    ));
+    const consumer = vi.fn();
+    const url = clipDevice.getClipUrl(D, 'a.mp4', 333, consumer, async () => true);
+    await vi.waitFor(() => expect(answer).toBeDefined());
+    clipDevice.releaseClip(D, 'a.mp4', 333, consumer); // the dialog closed
+    answer({ result: { size: 3, offset: 0, data: btoa('abc') } });
+    await expect(url).rejects.toThrow('cancelled');
+    expect(await clipDevice.hasClipBlob(D, 'a.mp4', 333)).toBe(false);
+  });
+});

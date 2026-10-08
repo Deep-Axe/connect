@@ -142,6 +142,7 @@ function clearPrivateState(state) {
     files: null,
     filesUploading: {},
     filesUploadingMeta: { dongleId: null, fetchedAt: null },
+    uploadQueues: {},
     routes: null,
     routesMeta: { dongleId: null, start: null, end: null },
     lastRoutes: null,
@@ -490,11 +491,14 @@ export default function reducer(_state, action) {
       };
       break;
     case Types.ACTION_FILES_UPLOADING:
+      // every polled device keeps its own queue (an upload panel can show
+      // another device's); the selected device's also drives its files
+      state.uploadQueues = { ...state.uploadQueues, [action.dongleId]: { uploading: action.uploading, fetchedAt: action.fetchedAt } };
       if (action.dongleId !== state.dongleId) break;
       state.filesUploading = action.uploading;
       state.filesUploadingMeta = {
         dongleId: action.dongleId,
-        fetchedAt: Date.now(),
+        fetchedAt: action.fetchedAt,
       };
       if (Object.keys(action.files).length) {
         state.files = {
@@ -503,7 +507,12 @@ export default function reducer(_state, action) {
         };
       }
       break;
-    case Types.ACTION_FILES_CANCELLED_UPLOADS:
+    case Types.ACTION_FILES_CANCELLED_UPLOADS: {
+      const queue = state.uploadQueues?.[action.dongleId];
+      if (queue) {
+        const uploading = Object.fromEntries(Object.entries(queue.uploading).filter(([id]) => !action.ids.includes(id)));
+        state.uploadQueues = { ...state.uploadQueues, [action.dongleId]: { ...queue, uploading } };
+      }
       if (action.dongleId !== state.dongleId) break;
       if (state.files) {
         const cancelFileNames = Object.keys(state.filesUploading)
@@ -517,6 +526,7 @@ export default function reducer(_state, action) {
         .filter((id) => !action.ids.includes(id))
         .reduce((obj, id) => { obj[id] = state.filesUploading[id]; return obj; }, {});
       break;
+    }
     case Types.ACTION_ROUTES_METADATA: {
       // merge existing routes' event and location info with new routes
       state.routes = action.routes.map((route) => {

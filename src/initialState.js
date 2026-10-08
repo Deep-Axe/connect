@@ -35,7 +35,8 @@ export function createInitialState() {
     missingRoute: null,   // 'dongle|log' a detail request found no route for
 
     files: null,
-    filesUploading: {},
+    filesUploading: {},   // the selected device's upload queue
+    uploadQueues: {},     // every polled device's upload queue, by dongle id
     filesUploadingMeta: {
       dongleId: null,
       fetchedAt: null,

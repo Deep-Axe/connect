@@ -109,6 +109,7 @@ async function mockFetch(input, init = {}) {
     mocks.rpcs.push(rpc.method);
     if (rpc.method === 'getClipState') return json({ jsonrpc: '2.0', id: rpc.id, result: { clips: mocks.options.clips ?? [] } });
     if (rpc.method === 'getVersion') return json({ jsonrpc: '2.0', id: rpc.id, result: { commit_date: 1 } });
+    if (rpc.method === 'listUploadQueue') return json({ jsonrpc: '2.0', id: rpc.id, result: mocks.options.uploadQueue ?? [] });
     return json({ jsonrpc: '2.0', id: rpc.id ?? 0, result: {} });
   }
   const options = mocks.options;
@@ -371,8 +372,9 @@ describe('whole-app behavior', () => {
     });
 
     test('the uploads link opens the queue over settings', async () => {
-      const { history } = await renderApp(`/${FIRST}/settings/uploads`);
+      const { history } = await renderApp(`/${FIRST}/settings/uploads`, { devices: online() });
       expect(await screen.findByText('Upload queue')).toBeVisible();
+      expect(await screen.findByText('no uploads')).toBeVisible(); // the queue actually loaded
       expect(screen.getByText('Device settings')).toBeInTheDocument();
       act(() => { history.goBack(); }); // nothing to go back to in a fresh session: stays
       expect(url(history)).toBe(`/${FIRST}/settings/uploads`);
@@ -452,6 +454,41 @@ describe('whole-app behavior', () => {
       act(() => { store.dispatch(updateDevices(devices)); });
       await waitFor(() => expect(url(history)).toBe(`/${FIRST}/prime`));
       expect(screen.queryByText('This device has no comma prime subscription.')).not.toBeInTheDocument();
+    });
+
+    test('an unrelated dialog over an unsubscribed Prime page is not treated as a Prime dialog', async () => {
+      await renderApp(`/${FIRST}/prime?modal=add-device`);
+      expect(await screen.findByText('Pair device')).toBeVisible();
+      expect(screen.queryByText('This device has no comma prime subscription.')).not.toBeInTheDocument();
+    });
+
+    test('a preview link for a clip still being made opens once the clip is ready', async () => {
+      const clip = { filename: 'trip.mp4', requested_at: 222, status: 'encoding', camera: 'fcamera.hevc', source_start_time: 0, source_end_time: 10, route: 'x' };
+      mocks.options = { clips: [clip] };
+      const { history } = await renderApp(`/${FIRST}/clips?clip=trip.mp4&clipRequestedAt=222`, { devices: online(), clips: [clip] });
+      expect(await screen.findByText('This clip is still being made.')).toBeVisible();
+      mocks.options.clips = [{ ...clip, status: 'ready' }]; // the next poll sees it finished
+      await waitFor(() => expect(mocks.rpcs).toContain('getClipChunk'), { timeout: 4000 });
+      expect(history.location.search).toBe('?clip=trip.mp4&clipRequestedAt=222');
+    });
+
+    test('a camera that arrives after the dialog closed is stopped', async () => {
+      let grant;
+      const stop = vi.fn();
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: {
+          enumerateDevices: vi.fn(async () => [{ kind: 'videoinput' }]),
+          getUserMedia: vi.fn(() => new Promise((resolve) => { grant = resolve; })),
+        },
+      });
+      const { history } = await renderApp(`/${FIRST}?modal=add-device`);
+      fireEvent.click(await screen.findByRole('button', { name: 'scan QR code with camera' }));
+      await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled());
+      act(() => { history.push(`/${FIRST}`); }); // closed while permission is pending
+      await waitFor(() => expect(screen.queryByText('Pair device')).not.toBeInTheDocument());
+      await act(async () => { grant({ getTracks: () => [{ stop }] }); });
+      expect(stop).toHaveBeenCalled();
     });
 
     test('a dialog over a page that cannot take one is an invalid link', async () => {
