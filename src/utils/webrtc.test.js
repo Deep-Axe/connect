@@ -1,31 +1,35 @@
 // The connection policy, against a fake connection: no real WebRTC.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { WebRTCConnectionManager, webrtcConnectionManager as liveManager } from './webrtc';
 import { endSession } from '../actions/session';
 import { createRoutingServices } from '../routing/services';
 import { runNavigationEffects } from '../routing/effects';
 
 const A = 'aaaaaaaaaaaaaaaa';
-const B = 'bbbbbbbbbbbbbbbb';
 
+const B = 'bbbbbbbbbbbbbbbb';
 let opened;
+
 function fakeConnection() {
   const conn = {
     connectionState: 'connecting',
     connect: vi.fn(async () => {}),
-    disconnect: vi.fn(() => { conn.connectionState = 'disconnected'; }),
+    disconnect: vi.fn(() => {
+      conn.connectionState = 'disconnected';
+    }),
     enableVideo: vi.fn(),
-    enableJoystick: vi.fn(),
+    enableJoystick: vi.fn()
   };
   opened.push(conn);
   return conn;
 }
-
 let manager;
+
 beforeEach(() => {
   opened = [];
-  manager = new WebRTCConnectionManager({ createConnection: fakeConnection });
+  manager = new WebRTCConnectionManager({
+    createConnection: fakeConnection
+  });
 });
 
 describe('stream connection policy', () => {
@@ -45,7 +49,9 @@ describe('stream connection policy', () => {
 
   it('leaving keeps a comma body warm and returning reuses it', () => {
     manager.enterStream(A);
-    manager.leaveStream(A, { keepWarm: true });
+    manager.leaveStream(A, {
+      keepWarm: true
+    });
     expect(opened[0].disconnect).not.toHaveBeenCalled();
     manager.enterStream(A);
     expect(opened).toHaveLength(1);
@@ -53,14 +59,18 @@ describe('stream connection policy', () => {
 
   it("leaving closes a car's connection", () => {
     manager.enterStream(A);
-    manager.leaveStream(A, { keepWarm: false });
+    manager.leaveStream(A, {
+      keepWarm: false
+    });
     expect(opened[0].disconnect).toHaveBeenCalled();
     expect(manager.connection).toBeNull();
   });
 
   it('leaving a stream page for another device does not touch the current one', () => {
     manager.enterStream(B);
-    manager.leaveStream(A, { keepWarm: false });
+    manager.leaveStream(A, {
+      keepWarm: false
+    });
     expect(opened[0].disconnect).not.toHaveBeenCalled();
   });
 
@@ -80,8 +90,8 @@ describe('stream connection policy', () => {
   });
 });
 
-// Regressions from IMPROVE_ARCH_DOCS/RESTACKED_TIPS_VERIFICATION.md: opening
-// or retrying the transport must not drop the stream page's ownership.
+// Opening or retrying the transport must preserve stream ownership.
+
 describe('stream ownership', () => {
   it('a cold enter keeps the stream owner after opening the transport', () => {
     manager.enterStream(A);
@@ -98,7 +108,9 @@ describe('stream ownership', () => {
 
   it('a real release, disconnect or device change clears it', () => {
     manager.enterStream(A);
-    manager.leaveStream(A, { keepWarm: true });
+    manager.leaveStream(A, {
+      keepWarm: true
+    });
     expect(manager.streamDongleId).toBeNull();
     manager.enterStream(A);
     manager.disconnect();
@@ -110,66 +122,139 @@ describe('stream ownership', () => {
 
   // the real exported manager and the real navigation effects; only the
   // transport and the effect dispatch boundary are faked
-  const leaveColdStream = (notCar) => {
+  const leaveColdStream = notCar => {
     liveManager.disconnect();
     const originalFactory = liveManager.createConnection;
     liveManager.createConnection = fakeConnection;
     try {
       liveManager.enterStream(A);
       const connection = liveManager.connection;
-      runNavigationEffects(null, { base: { view: 'dashboard', dongleId: A }, commands: {} }, {
+      runNavigationEffects(null, {
+        base: {
+          view: 'dashboard',
+          dongleId: A
+        },
+        commands: {}
+      }, {
         isCurrent: () => true,
         isLatest: () => true,
         previousDongleId: A,
         getState: () => ({
-          dongleId: A, limit: 5, entities: { devices: { [A]: { dongle_id: A, rpc: { not_car: notCar } } }, deviceOrder: [A] },
+          dongleId: A,
+          limit: 5,
+          entities: {
+            devices: {
+              [A]: {
+                dongle_id: A,
+                rpc: {
+                  not_car: notCar
+                }
+              }
+            },
+            deviceOrder: [A]
+          }
         }),
         dispatch: vi.fn(),
-        services: { commands: { pairTokens: new Set() } },
+        services: {
+          commands: {
+            pairTokens: new Set()
+          }
+        }
       });
       // read before the cleanup below disconnects everything
       return {
-        disconnected: connection.disconnect.mock.calls.length > 0, kept: liveManager.connection === connection, owner: liveManager.streamDongleId,
+        disconnected: connection.disconnect.mock.calls.length > 0,
+        kept: liveManager.connection === connection,
+        owner: liveManager.streamDongleId
       };
     } finally {
       liveManager.disconnect();
       liveManager.createConnection = originalFactory;
     }
   };
-
   it('leaving a cold SPA stream closes the actual car transport', () => {
-    const { disconnected, kept } = leaveColdStream(false);
+    const {
+      disconnected,
+      kept
+    } = leaveColdStream(false);
     expect(disconnected).toBe(true);
     expect(kept).toBe(false);
   });
 
   it('leaving a cold SPA stream keeps a comma body warm and releases ownership', () => {
-    const { disconnected, kept, owner } = leaveColdStream(true);
+    const {
+      disconnected,
+      kept,
+      owner
+    } = leaveColdStream(true);
     expect(disconnected).toBe(false);
     expect(kept).toBe(true);
     expect(owner).toBeNull();
   });
 });
 
-describe('EXHAUSTIVE invalid exit and logout on actual manager',()=>{
- it('AUDIT invalid destination still closes the old car transport',()=>{
-  liveManager.disconnect();const factory=liveManager.createConnection;
-  liveManager.createConnection=fakeConnection;
-  try{
-   liveManager.enterStream(A);const connection=liveManager.connection;
-   runNavigationEffects(null,{base:{view:'invalid',dongleId:null},commands:{}},{isCurrent:()=>true,isLatest:()=>true,previousDongleId:A,getState:()=>({dongleId:A,entities:{devices:{[A]:{dongle_id:A,rpc:{not_car:false}}},deviceOrder:[]}}),dispatch:vi.fn(),services:{commands:{pairTokens:new Set()}}});
-   expect(connection.disconnect).toHaveBeenCalled();
-   expect(liveManager.streamDongleId).toBeNull();
-  }finally{liveManager.disconnect();liveManager.createConnection=factory;}
- });
- it('AUDIT ending auth session tears down actual stream transport',()=>{
-  liveManager.disconnect();const factory=liveManager.createConnection;
-  liveManager.createConnection=fakeConnection;
-  try{
-   liveManager.enterStream(A);const connection=liveManager.connection;
-   endSession()(vi.fn(),()=>({sessionEpoch:0}),createRoutingServices());
-   expect(connection.disconnect).toHaveBeenCalled();
-   expect(liveManager.streamDongleId).toBeNull();
-  }finally{liveManager.disconnect();liveManager.createConnection=factory;}
- });
+describe('invalid exit and logout on actual manager', () => {
+  it('invalid destination still closes the old car transport', () => {
+    liveManager.disconnect();
+    const factory = liveManager.createConnection;
+    liveManager.createConnection = fakeConnection;
+    try {
+      liveManager.enterStream(A);
+      const connection = liveManager.connection;
+      runNavigationEffects(null, {
+        base: {
+          view: 'invalid',
+          dongleId: null
+        },
+        commands: {}
+      }, {
+        isCurrent: () => true,
+        isLatest: () => true,
+        previousDongleId: A,
+        getState: () => ({
+          dongleId: A,
+          entities: {
+            devices: {
+              [A]: {
+                dongle_id: A,
+                rpc: {
+                  not_car: false
+                }
+              }
+            },
+            deviceOrder: []
+          }
+        }),
+        dispatch: vi.fn(),
+        services: {
+          commands: {
+            pairTokens: new Set()
+          }
+        }
+      });
+      expect(connection.disconnect).toHaveBeenCalled();
+      expect(liveManager.streamDongleId).toBeNull();
+    } finally {
+      liveManager.disconnect();
+      liveManager.createConnection = factory;
+    }
+  });
+
+  it('ending auth session tears down actual stream transport', () => {
+    liveManager.disconnect();
+    const factory = liveManager.createConnection;
+    liveManager.createConnection = fakeConnection;
+    try {
+      liveManager.enterStream(A);
+      const connection = liveManager.connection;
+      endSession()(vi.fn(), () => ({
+        sessionEpoch: 0
+      }), createRoutingServices());
+      expect(connection.disconnect).toHaveBeenCalled();
+      expect(liveManager.streamDongleId).toBeNull();
+    } finally {
+      liveManager.disconnect();
+      liveManager.createConnection = factory;
+    }
+  });
 });

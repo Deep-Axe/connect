@@ -338,20 +338,20 @@ describe('whole-app behavior', () => {
     fireEvent.click(within(document.body).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(history.location.pathname).toBe(`/${FIRST}`));
   });
-  test('AUDIT anonymous landing -> public drive selects public view without remounting App', async () => {
+  test('anonymous landing -> public drive selects public view without remounting App', async () => {
     const app=await renderApp('/', {authenticated:false});
     expect(screen.getByText('Sign in with Google')).toBeVisible();
     await act(async()=>{app.history.push(`/${FIRST}/${LOG}/0/20`);await new Promise(r=>setTimeout(r,10));});
     expect(screen.queryByText('Sign in with Google')).not.toBeInTheDocument();
     expect(await screen.findByRole('slider',{name:'Drive timeline'})).toBeVisible();
   });
-  test('AUDIT public drive -> dashboard selects login view without remounting App', async () => {
+  test('public drive -> dashboard selects login view without remounting App', async () => {
     const app=await renderApp(`/${FIRST}/${LOG}/0/20`, {authenticated:false});
     expect(await screen.findByRole('slider',{name:'Drive timeline'})).toBeVisible();
     await act(async()=>{app.history.push(`/${FIRST}`);await new Promise(r=>setTimeout(r,10));});
     expect(screen.getByText('Sign in with Google')).toBeVisible();
   });
-  test('AUDIT query-only login return change updates stored full return location', async () => {
+  test('query-only login return change updates stored full return location', async () => {
     const first=`/${FIRST}/${LOG}/0/20?x=one#first`;
     const second=`/${SECOND}/${LOG}/1/10?x=two#second`;
     const app=await renderApp(`/?r=${encodeURIComponent(first)}`,{authenticated:false});
@@ -562,49 +562,129 @@ describe('whole-app behavior', () => {
 
 });
 
-test('an authorized 401 clears private ownership and reloads the complete public URL', async()=>{
- const history=createMemoryHistory({initialEntries:[`/${FIRST}/${LOG}?ext=kept#bookmark`]});
- const store=createAppStore(history,createInitialState());
- const app=new App({store,history});
- await app.apiErrorResponseCallback({status:401});
- expect(store.getState().sessionEpoch).toBe(1);
- expect(mocks.hardNavigate).toHaveBeenCalledWith(`/${FIRST}/${LOG}?ext=kept#bookmark`);
+test('an authorized 401 clears private ownership and reloads the complete public URL', async () => {
+  const history = createMemoryHistory({
+    initialEntries: [`/${FIRST}/${LOG}?ext=kept#bookmark`]
+  });
+  const store = createAppStore(history, createInitialState());
+  const app = new App({
+    store,
+    history
+  });
+  await app.apiErrorResponseCallback({
+    status: 401
+  });
+  expect(store.getState().sessionEpoch).toBe(1);
+  expect(mocks.hardNavigate).toHaveBeenCalledWith(`/${FIRST}/${LOG}?ext=kept#bookmark`);
 });
-
-test('delayed startup auth cannot configure an ended session',async()=>{
- const history=createMemoryHistory({initialEntries:[`/${FIRST}/stream`]});
- const store=createAppStore(history,createInitialState());const app=new App({store,history});
- app.setState=vi.fn();let resolve;
- MyCommaAuth.init.mockImplementationOnce(()=>new Promise(r=>resolve=r));
- const pending=app.componentDidMount();store.dispatch(endSession());resolve('old-token');await pending;
- expect(Request.headers.Authorization).toBeUndefined();expect(app.setState).not.toHaveBeenCalled();
+test('delayed startup auth cannot configure an ended session', async () => {
+  const history = createMemoryHistory({
+    initialEntries: [`/${FIRST}/stream`]
+  });
+  const store = createAppStore(history, createInitialState());
+  const app = new App({
+    store,
+    history
+  });
+  app.setState = vi.fn();
+  let resolve;
+  MyCommaAuth.init.mockImplementationOnce(() => new Promise(r => resolve = r));
+  const pending = app.componentDidMount();
+  store.dispatch(endSession());
+  resolve('old-token');
+  await pending;
+  expect(Request.headers.Authorization).toBeUndefined();
+  expect(app.setState).not.toHaveBeenCalled();
 });
-test('delayed 401 logout cannot reload a successor session',async()=>{
- const history=createMemoryHistory({initialEntries:[`/${FIRST}/${LOG}`]});
- const store=createAppStore(history,createInitialState());const app=new App({store,history});let resolve;
- AuthStorage.logOut.mockImplementationOnce(()=>new Promise(r=>resolve=r));mocks.hardNavigate.mockClear();
- const pending=app.apiErrorResponseCallback({status:401});store.dispatch(endSession());resolve();await pending;
- expect(mocks.hardNavigate).not.toHaveBeenCalled();
+test('delayed 401 logout cannot reload a successor session', async () => {
+  const history = createMemoryHistory({
+    initialEntries: [`/${FIRST}/${LOG}`]
+  });
+  const store = createAppStore(history, createInitialState());
+  const app = new App({
+    store,
+    history
+  });
+  let resolve;
+  AuthStorage.logOut.mockImplementationOnce(() => new Promise(r => resolve = r));
+  mocks.hardNavigate.mockClear();
+  const pending = app.apiErrorResponseCallback({
+    status: 401
+  });
+  store.dispatch(endSession());
+  resolve();
+  await pending;
+  expect(mocks.hardNavigate).not.toHaveBeenCalled();
 });
-
-test('FINAL_REVIEW 401 recovery waits for persisted resource teardown before reload',async()=>{
- const history=createMemoryHistory({initialEntries:[`/${FIRST}/${LOG}?kept=1#anchor`]});const store=createAppStore(history,createInitialState());
- let finish;store.dispatch((_dispatch,_getState,services)=>{services.assetCache={clear:()=>new Promise(resolve=>finish=resolve)};});
- const app=new App({store,history});AuthStorage.logOut.mockResolvedValueOnce();mocks.hardNavigate.mockClear();
- const pending=app.apiErrorResponseCallback({status:401});await Promise.resolve();await Promise.resolve();
- const redirected=mocks.hardNavigate.mock.calls.length;finish();await pending;expect(redirected).toBe(0);
+test('401 recovery waits for persisted resource teardown before reload', async () => {
+  const history = createMemoryHistory({
+    initialEntries: [`/${FIRST}/${LOG}?kept=1#anchor`]
+  });
+  const store = createAppStore(history, createInitialState());
+  let finish;
+  store.dispatch((_dispatch, _getState, services) => {
+    services.assetCache = {
+      clear: () => new Promise(resolve => finish = resolve)
+    };
+  });
+  const app = new App({
+    store,
+    history
+  });
+  AuthStorage.logOut.mockResolvedValueOnce();
+  mocks.hardNavigate.mockClear();
+  const pending = app.apiErrorResponseCallback({
+    status: 401
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  const redirected = mocks.hardNavigate.mock.calls.length;
+  finish();
+  await pending;
+  expect(redirected).toBe(0);
 });
-test('FINAL_REVIEW the account-menu logout clears session-owned Redux and persisted services',async()=>{
- const history=createMemoryHistory({initialEntries:['/']});const store=createAppStore(history,{...createInitialState(),profile:{id:'private',email:'test@example.com'}});
- render(<Provider store={store}><AccountMenu profile={store.getState().profile} open onClose={()=>{}} onReferrals={()=>{}}/></Provider>);
- fireEvent.click(screen.getByRole('button',{name:'Log out'}));await Promise.resolve();await Promise.resolve();
- expect(store.getState().profile).toBeNull();expect(store.getState().sessionEpoch).toBe(1);
+test('the account-menu logout clears session-owned Redux and persisted services', async () => {
+  const history = createMemoryHistory({
+    initialEntries: ['/']
+  });
+  const store = createAppStore(history, {
+    ...createInitialState(),
+    profile: {
+      id: 'private',
+      email: 'test@example.com'
+    }
+  });
+  render(<Provider store={store}><AccountMenu profile={store.getState().profile} open onClose={() => {}} onReferrals={() => {}} /></Provider>);
+  fireEvent.click(screen.getByRole('button', {
+    name: 'Log out'
+  }));
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(store.getState().profile).toBeNull();
+  expect(store.getState().sessionEpoch).toBe(1);
 });
-
-test('FINAL_REVIEW a successor epoch suppresses recovery after pending purge completes',async()=>{
- const history=createMemoryHistory({initialEntries:['/']});const store=createAppStore(history,createInitialState());const finish=[];
- store.dispatch((_dispatch,_getState,services)=>{services.assetCache={clear:()=>new Promise(resolve=>finish.push(resolve))};});
- const app=new App({store,history});AuthStorage.logOut.mockResolvedValueOnce();mocks.hardNavigate.mockClear();
- const pending=app.apiErrorResponseCallback({status:401});store.dispatch(endSession());finish.forEach(resolve=>resolve());await pending;
- expect(mocks.hardNavigate).not.toHaveBeenCalled();
+test('a successor epoch suppresses recovery after pending purge completes', async () => {
+  const history = createMemoryHistory({
+    initialEntries: ['/']
+  });
+  const store = createAppStore(history, createInitialState());
+  const finish = [];
+  store.dispatch((_dispatch, _getState, services) => {
+    services.assetCache = {
+      clear: () => new Promise(resolve => finish.push(resolve))
+    };
+  });
+  const app = new App({
+    store,
+    history
+  });
+  AuthStorage.logOut.mockResolvedValueOnce();
+  mocks.hardNavigate.mockClear();
+  const pending = app.apiErrorResponseCallback({
+    status: 401
+  });
+  store.dispatch(endSession());
+  finish.forEach(resolve => resolve());
+  await pending;
+  expect(mocks.hardNavigate).not.toHaveBeenCalled();
 });

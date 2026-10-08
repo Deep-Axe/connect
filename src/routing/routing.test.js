@@ -369,9 +369,8 @@ describe('commands', () => {
   });
 });
 
-// Regressions for IMPROVE_ARCH_DOCS/PR1_VERIFICATION.md (the reviewer's probes
-// plus the findings they described without a probe).
-describe('PR1 verification findings', () => {
+// Navigation preserves context while asynchronous work belongs to its initiating session.
+describe('navigation and session transitions', () => {
   const url = (history) => `${history.location.pathname}${history.location.search}${history.location.hash}`;
 
   it('a same-drive range edit keeps unknown arguments (in order) and the hash', async () => {
@@ -550,10 +549,8 @@ describe('PR1 verification findings', () => {
   });
 });
 
-// Regressions from IMPROVE_ARCH_DOCS/BOTH_BRANCHES_VERIFICATION.md (the
-// reviewer's probes; the stream one asserts the release reported to the
-// connection manager, which now decides whether to disconnect).
-describe('second verification findings', () => {
+// The connection manager decides whether a released stream stays warm.
+describe('same-page navigation ownership', () => {
   it('a queued canonical rewrite preserves a newer same-page hash navigation', async () => {
     const { history } = await start(`/${A}`);
     history.push(`/${A}/`);
@@ -727,7 +724,7 @@ describe('task dialogs', () => {
   });
 });
 
-describe('dialog review fixes', () => {
+describe('dialog history and polling', () => {
   const settings = (dongleId, panel = null) => modalOf(MODALS.SETTINGS, { dongleId, panel });
   const url = (history) => `${history.location.pathname}${history.location.search}${history.location.hash}`;
 
