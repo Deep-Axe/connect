@@ -73,6 +73,9 @@ export default defineConfig(({ mode }) => {
       },
     },
     test: {
+      // Each jsdom worker loads a substantial UI graph. Bound concurrency so
+      // cold transforms do not compete with every test file at once.
+      maxWorkers: 4,
       globals: true,
       environment: 'jsdom',
       include: ['src/**/*.test.{js,jsx,ts,tsx}'],

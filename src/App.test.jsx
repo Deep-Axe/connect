@@ -1,8 +1,12 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryHistory } from 'history';
 
 import App from './App';
+// These real screens are dependencies of the integration suite. Collect their
+// modules before test timers start; App still renders them through React.lazy.
+import './components/explorer';
+import './components/anonymous';
 import { Provider } from 'react-redux';
 import AccountMenu from './components/AppHeader/AccountMenu';
 import MyCommaAuth, {storage as AuthStorage} from '@commaai/my-comma-auth';
@@ -72,6 +76,7 @@ vi.mock('localforage', () => {
       setItem: async (key, value) => { items.set(key, value); return value; },
       removeItem: async (key) => { items.delete(key); },
       keys: async () => [...items.keys()],
+      clear: async () => { items.clear(); },
     };
   };
   return { default: { ...store(), createInstance: store } };
@@ -157,7 +162,27 @@ async function mockFetch(input, init = {}) {
   throw new Error(`Unhandled request: ${init.method || 'GET'} ${url.href}`);
 }
 
-async function renderApp(pathname, options = {}) {
+const appStores = new Set();
+const pendingRenders = new Set();
+
+// A Vitest timeout does not cancel renderApp. Drain its bounded waits and act
+// scope before the next test, then unmount and invalidate resource ownership.
+afterEach(async () => {
+  await Promise.allSettled(pendingRenders);
+  cleanup();
+  await Promise.all([...appStores].map((store) => store.dispatch(endSession())));
+  appStores.clear();
+});
+
+function renderApp(pathname, options = {}) {
+  const pending = renderAppFixture(pathname, options);
+  pendingRenders.add(pending);
+  const finished = () => pendingRenders.delete(pending);
+  pending.then(finished, finished);
+  return pending;
+}
+
+async function renderAppFixture(pathname, options) {
   mocks.authenticated = options.authenticated !== false;
   mocks.options = options;
   mocks.requests = [];
@@ -166,6 +191,7 @@ async function renderApp(pathname, options = {}) {
   if (options.selected) localStorage.setItem('selectedDongleId', options.selected);
   const history = createMemoryHistory({ initialEntries: [pathname] });
   const store = createAppStore(history, createInitialState());
+  appStores.add(store);
   const view = render(<App history={history} store={store} />);
   await waitFor(
     () => expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument(),
