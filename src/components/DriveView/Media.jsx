@@ -13,7 +13,8 @@ import DriveVideo from '../DriveVideo';
 import TimeDisplay from '../TimeDisplay';
 import { subscribeWindowSize } from '../../hooks/window';
 import UploadQueue from '../Files/UploadQueue';
-import ClipMenu from './ClipMenu';
+import { MODALS, modalOf } from '../../routing/codec';
+import { openModal } from '../../routing/navigate';
 import SwitchLoading from '../utils/SwitchLoading';
 import { bufferVideo } from '../../timeline/playback';
 import Colors from '../../colors';
@@ -206,9 +207,7 @@ class Media extends Component {
       inView: MediaType.VIDEO,
       windowWidth: window.innerWidth,
       downloadMenu: null,
-      clipMenu: null,
       moreInfoMenu: null,
-      uploadModal: false,
       dcamUploadInfo: null,
       routePreserved: null,
       isMuted: true,
@@ -256,7 +255,7 @@ class Media extends Component {
     const { windowWidth, inView, downloadMenu, moreInfoMenu, routePreserved } = this.state;
     const showMapAlways = windowWidth >= 1536;
     if (prevProps.dongleId !== this.props.dongleId) {
-      this.setState({ clipsSupported: false, clipMenu: null });
+      this.setState({ clipsSupported: false });
       this.checkClipsSupport();
     } else if (!deviceIsOnline(prevProps.device) && deviceIsOnline(this.props.device)) {
       this.checkClipsSupport();
@@ -609,7 +608,7 @@ class Media extends Component {
                 className={classes.mediaOption}
                 style={deviceIsOnline(device) ? {} : { opacity: 0.7 }}
                 aria-haspopup="true"
-                onClick={(ev) => deviceIsOnline(device) && this.setState({ clipMenu: ev.currentTarget })}
+                onClick={() => deviceIsOnline(device) && this.props.dispatch(openModal(modalOf(MODALS.CLIPS, { dongleId: this.props.dongleId })))}
               >
                 <Typography className={classes.mediaOptionText}>Clip</Typography>
               </div>
@@ -637,7 +636,7 @@ class Media extends Component {
 
   renderMenus(alwaysOpen = false) {
     const { currentRoute, device, classes, files, profile } = this.props;
-    const { downloadMenu, clipMenu, moreInfoMenu, uploadModal, windowWidth, dcamUploadInfo, routePreserved } = this.state;
+    const { downloadMenu, moreInfoMenu, windowWidth, dcamUploadInfo, routePreserved } = this.state;
 
     if (!device) {
       return null;
@@ -668,16 +667,6 @@ class Media extends Component {
 
     return (
       <>
-        <ClipMenu
-          open={Boolean(alwaysOpen || clipMenu)}
-          dongleId={this.props.dongleId}
-          anchorEl={clipMenu}
-          onClose={() => this.setState({ clipMenu: null })}
-          route={currentRoute}
-          routes={this.props.routes}
-          zoom={this.props.zoom}
-          deviceOnline={deviceIsOnline(device)}
-        />
         <Menu
           id="menu-download"
           open={ Boolean(alwaysOpen || downloadMenu) }
@@ -747,7 +736,10 @@ class Media extends Component {
           <hr />
           { deviceIsOnline(device) || !files ? (
             <MenuItem
-              onClick={ files ? () => this.setState({ uploadModal: true, downloadMenu: null }) : null }
+              onClick={ files ? () => {
+                this.setState({ downloadMenu: null });
+                this.props.dispatch(openModal(modalOf(MODALS.SETTINGS, { dongleId: device.dongle_id, panel: 'uploads' })));
+              } : null }
               style={ files ? { pointerEvents: 'auto' } : { color: Colors.white60 } }
               className={ classes.filesItem }
               disabled={ !files }
@@ -822,10 +814,12 @@ class Media extends Component {
             </ListItem>,
           ] }
         </Menu>
+        {/* never shown here: keeps upload progress fresh for the menus; the
+            queue itself opens as the settings uploads panel */}
         <UploadQueue
-          open={ uploadModal }
-          onClose={ () => this.setState({ uploadModal: false }) }
-          update={ Boolean(moreInfoMenu || uploadModal || downloadMenu) }
+          open={ false }
+          onClose={ () => {} }
+          update={ Boolean(moreInfoMenu || downloadMenu) }
           store={ this.props.store }
           device={ device }
         />

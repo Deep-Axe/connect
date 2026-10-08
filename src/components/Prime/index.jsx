@@ -3,10 +3,13 @@ import { connect } from 'react-redux';
 import { Typography } from '@material-ui/core';
 import PrimeManage from './PrimeManage';
 import PrimeCheckout from './PrimeCheckout';
+import UnavailableDialog from '../utils/UnavailableDialog';
+import { closeModal } from '../../routing/navigate';
+import { selectNavLocation } from '../../routing/selectors';
 
 const Prime = (props) => {
   // the Stripe redirect's result, consumed from the URL by the navigation effects
-  const { device, profile, stripeResult } = props;
+  const { device, dispatch, modal, profile, stripeResult } = props;
   const stripeCancelled = stripeResult?.cancelled ?? null;
   const stripeSuccess = stripeResult?.success ?? null;
 
@@ -20,7 +23,13 @@ const Prime = (props) => {
   if (device.prime || stripeSuccess) {
     return (<PrimeManage stripeSuccess={ stripeSuccess } />);
   }
-  return (<PrimeCheckout stripeCancelled={ stripeCancelled } />);
+  return (
+    <>
+      <PrimeCheckout stripeCancelled={ stripeCancelled } />
+      {/* cancel / change-plan links need an existing subscription */}
+      {modal && <UnavailableDialog message="This device has no comma prime subscription." onClose={() => dispatch(closeModal())} />}
+    </>
+  );
 };
 
 const stateToProps = (state) => ({
@@ -28,6 +37,7 @@ const stateToProps = (state) => ({
   device: state.device,
   profile: state.profile,
   stripeResult: state.primeStripeResult,
+  modal: selectNavLocation(state)?.modal?.kind ?? null,
 });
 
 export default connect(stateToProps)(Prime);
