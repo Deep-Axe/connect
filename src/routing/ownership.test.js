@@ -14,6 +14,7 @@ import localforage from 'localforage';
 import { webrtcConnectionManager } from '../utils/webrtc';
 import { endSession } from '../actions/session';
 import { selectView } from './selectors';
+import { selectDevices } from '../selectors';
 import { buildUrl, parseLocation, VIEWS } from './codec';
 
 const api = vi.hoisted(() => ({
@@ -112,7 +113,7 @@ describe('exhaustive transition audit',()=>{
  it('AUDIT root fallback uses first sorted accessible device',async()=>{
   api.listDevices.mockResolvedValue([{dongle_id:A,is_owner:true,alias:'Zulu'}, {dongle_id:B,is_owner:true,alias:'Alpha'}]);
   const app=await start('/');
-  expect(app.store.getState().devices[0].dongle_id).toBe(B);
+  expect(selectDevices(app.store.getState())[0].dongle_id).toBe(B);
   expect(app.history.location.pathname).toBe(`/${B}`);
  });
  it('AUDIT stream -> invalid releases its lifecycle ownership',async()=>{

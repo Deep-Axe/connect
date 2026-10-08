@@ -17,6 +17,7 @@ import { closeModal, leavePage, openModal } from '../../routing/navigate';
 import { selectNavLocation } from '../../routing/selectors';
 import CommacareBadge, { COMMACARE_URL } from '../CommacareBadge';
 import { otherPrimePlan, primePlanName } from './primePlans';
+import { selectDevice } from '../../selectors';
 
 export function primeSwitchErrorMessage(error, plan = 'data') {
   const status = error?.resp?.status;
@@ -797,7 +798,7 @@ export class PrimeManage extends Component {
 
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
-  device: state.device,
+  device: selectDevice(state),
   subscription: state.subscription,
   modal: selectNavLocation(state)?.modal?.kind ?? null,
   taskLocation: selectNavLocation(state),

@@ -15,6 +15,7 @@ import VisibilityHandler from '../VisibilityHandler';
 import AddDevice from './AddDevice';
 import { MODALS, modalOf } from '../../routing/codec';
 import { openModal } from '../../routing/navigate';
+import { selectDevice, selectDevices } from '../../selectors';
 
 const styles = (theme) => ({
   deviceList: {
@@ -198,8 +199,8 @@ class DeviceList extends Component {
 }
 
 const stateToProps = (state) => ({
-  devices: state.devices,
-  device: state.device,
+  devices: selectDevices(state),
+  device: selectDevice(state),
   profile: state.profile,
 });
 

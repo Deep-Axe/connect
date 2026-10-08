@@ -13,6 +13,7 @@ import TimeSelect from '../TimeSelect';
 import DriveListEmpty from './DriveListEmpty';
 import DriveListItem from './DriveListItem';
 import ScrollIntoView from '../ScrollIntoView'
+import { selectDevice } from '../../selectors';
 
 const styles = () => ({
   header: {
@@ -160,7 +161,7 @@ const stateToProps = (state) => ({
   dongleId: state.dongleId,
   routes: state.routes,
   lastRoutes: state.lastRoutes,
-  device: state.device,
+  device: selectDevice(state),
 });
 
 export default connect(stateToProps)(withStyles(styles)(DriveList));

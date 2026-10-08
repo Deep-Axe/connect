@@ -13,6 +13,7 @@ import { leavePage } from '../../routing/navigate';
 import { CheckIcon, ErrorOutline, InfoOutline, KeyboardBackspaceIcon } from '../../icons';
 import CommacareIcon from '../../icons/commacare.png';
 import { COMMACARE_URL } from '../CommacareBadge';
+import { selectDevice } from '../../selectors';
 
 const styles = () => ({
   linkHighlight: {
@@ -512,7 +513,7 @@ class PrimeCheckout extends Component {
 
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
-  device: state.device,
+  device: selectDevice(state),
   subscribeInfo: state.subscribeInfo,
 });
 

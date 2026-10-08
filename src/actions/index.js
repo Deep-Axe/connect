@@ -10,6 +10,7 @@ import { urlOfRouterLocation } from '../routing/codec';
 import { selectSelectedRouteId } from '../routing/selectors';
 import { fallbackServices } from '../routing/services';
 import { ownedDispatch } from './owned';
+import { selectDeviceById } from '../selectors';
 
 const LIMIT_INCREMENT = 5
 
@@ -195,8 +196,8 @@ export function primeFetchSubscription(dongleId, device, profile) {
     const dispatch = ownedDispatch(rawDispatch, getState);
     const state = getState();
 
-    if (!device && state.device && state.device.dongle_id === dongleId) {
-      device = state.device;
+    if (!device) {
+      device = selectDeviceById(state, dongleId);
     }
     if (!profile && state.profile) {
       profile = state.profile;
@@ -249,6 +250,7 @@ export function fetchSharedDevice(dongleId) {
         type: Types.ACTION_UPDATE_SHARED_DEVICE,
         dongleId,
         device: resp,
+        fetchedAt: Math.floor(Date.now() / 1000),
       });
     } catch (err) {
       if (!err.resp || err.resp.status !== 403) {
@@ -361,6 +363,7 @@ export function updateDevices(devices) {
   return {
     type: Types.ACTION_UPDATE_DEVICES,
     devices,
+    fetchedAt: Math.floor(Date.now() / 1000),
   };
 }
 
@@ -368,6 +371,7 @@ export function updateDevice(device) {
   return {
     type: Types.ACTION_UPDATE_DEVICE,
     device,
+    fetchedAt: Math.floor(Date.now() / 1000),
   };
 }
 

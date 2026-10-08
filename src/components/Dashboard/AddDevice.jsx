@@ -11,6 +11,7 @@ import { openModal, openedInteractively, toDashboard } from '../../routing/navig
 import { verifyPairToken, pairErrorToMessage } from '../../utils';
 import { AddCircleOutlineIcon } from '../../icons';
 import Colors from '../../colors';
+import { selectDevices } from '../../selectors';
 
 const styles = (theme) => ({
   titleContainer: {
@@ -483,7 +484,7 @@ export class AddDeviceDialog extends Component {
 
 const stateToProps = (state) => ({
   profile: state.profile,
-  devices: state.devices,
+  devices: selectDevices(state),
 });
 
 export const ConnectedAddDeviceDialog = connect(stateToProps)(withStyles(styles)(AddDeviceDialog));

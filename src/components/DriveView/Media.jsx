@@ -26,6 +26,7 @@ import { analyticsEvent, updateRoute } from '../../actions';
 import { fetchEvents } from '../../actions/cached';
 import { attachRelTime } from '../../analytics';
 import { setRouteViewed, fetchFiles, doUpload, fetchUploadUrls, fetchAthenaQueue, updateFiles, FILE_NAMES } from '../../actions/files';
+import { selectDevice } from '../../selectors';
 
 const publicTooltip = 'Making a route public allows anyone with the route name or link to access it.';
 const preservedTooltip = 'Preserving a route will prevent it from being deleted. You can preserve up to 10 routes, or 100 if you have comma prime.';
@@ -958,7 +959,7 @@ export class Media extends Component {
 
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
-  device: state.device,
+  device: selectDevice(state),
   routes: state.routes,
   currentRoute: state.currentRoute,
   zoom: state.zoom,

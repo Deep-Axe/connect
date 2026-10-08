@@ -10,6 +10,7 @@ import StatusBar from './StatusBar';
 import ControlsBar from './ControlsBar';
 import Video from './Video';
 import Joystick from './Joystick';
+import { selectDevice } from '../../selectors';
 
 export const BodyTeleop = ({ dongleId, device, onClose, dispatch }) => {
   const [connectionState, setConnectionState] = useState('none');
@@ -219,7 +220,7 @@ export const BodyTeleop = ({ dongleId, device, onClose, dispatch }) => {
 
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
-  device: state.device,
+  device: selectDevice(state),
 });
 
 export default connect(stateToProps)(BodyTeleop);

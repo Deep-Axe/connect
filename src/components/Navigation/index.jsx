@@ -15,6 +15,7 @@ import VisibilityHandler from '../VisibilityHandler';
 import { subscribeWindowSize } from '../../hooks/window';
 import * as Utils from './utils';
 import { isIos } from '../../utils/browser.js';
+import { selectDevice } from '../../selectors';
 
 const styles = () => ({
   mapContainer: {
@@ -609,7 +610,7 @@ class Navigation extends Component {
 }
 
 const stateToProps = (state) => ({
-  device: state.device,
+  device: selectDevice(state),
   dongleId: state.dongleId,
 });
 

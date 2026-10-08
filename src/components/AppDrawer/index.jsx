@@ -7,6 +7,7 @@ import Drawer from '@material-ui/core/Drawer';
 import DeviceList from '../Dashboard/DeviceList';
 
 import { toDashboard } from '../../routing/navigate';
+import { selectDevice } from '../../selectors';
 
 const listener = (ev) => ev.stopPropagation();
 
@@ -58,7 +59,7 @@ const AppDrawer = ({
 
 const stateToProps = (state) => ({
   selectedDongleId: state.dongleId,
-  device: state.device,
+  device: selectDevice(state),
 });
 
 export default connect(stateToProps)(AppDrawer);

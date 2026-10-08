@@ -121,7 +121,9 @@ describe('stream ownership', () => {
         isCurrent: () => true,
         isLatest: () => true,
         previousDongleId: A,
-        getState: () => ({ dongleId: A, limit: 5, device: { dongle_id: A, rpc: { not_car: notCar } }, devices: [] }),
+        getState: () => ({
+          dongleId: A, limit: 5, entities: { devices: { [A]: { dongle_id: A, rpc: { not_car: notCar } } }, deviceOrder: [A] },
+        }),
         dispatch: vi.fn(),
         services: { commands: { pairTokens: new Set() } },
       });
@@ -155,7 +157,7 @@ describe('EXHAUSTIVE invalid exit and logout on actual manager',()=>{
   liveManager.createConnection=fakeConnection;
   try{
    liveManager.enterStream(A);const connection=liveManager.connection;
-   runNavigationEffects(null,{base:{view:'invalid',dongleId:null},commands:{}},{isCurrent:()=>true,isLatest:()=>true,previousDongleId:A,getState:()=>({dongleId:A,device:{dongle_id:A,rpc:{not_car:false}},devices:[]}),dispatch:vi.fn(),services:{commands:{pairTokens:new Set()}}});
+   runNavigationEffects(null,{base:{view:'invalid',dongleId:null},commands:{}},{isCurrent:()=>true,isLatest:()=>true,previousDongleId:A,getState:()=>({dongleId:A,entities:{devices:{[A]:{dongle_id:A,rpc:{not_car:false}}},deviceOrder:[]}}),dispatch:vi.fn(),services:{commands:{pairTokens:new Set()}}});
    expect(connection.disconnect).toHaveBeenCalled();
    expect(liveManager.streamDongleId).toBeNull();
   }finally{liveManager.disconnect();liveManager.createConnection=factory;}

@@ -28,6 +28,7 @@ import NoDeviceUpsell from './DriveView/NoDeviceUpsell';
 import Referrals from './Referrals';
 import PageNotFound from './PageNotFound';
 import ModalHost from './ModalHost';
+import { selectDevices } from '../selectors';
 
 const styles = (theme) => ({
   app: {
@@ -304,7 +305,7 @@ export class ExplorerApp extends Component {
 const stateToProps = (state) => ({
   zoom: state.zoom,
   dongleId: state.dongleId,
-  devices: state.devices,
+  devices: selectDevices(state),
   currentRoute: state.currentRoute,
   view: selectView(state),
   navLocation: selectNavLocation(state),

@@ -6,6 +6,7 @@ import { updateDeviceOnline, fetchDeviceNetworkStatus } from '.';
 import * as Types from './types';
 import { deviceOnCellular, getDeviceFromState, deviceVersionAtLeast, asyncSleep } from '../utils';
 import { ownedDispatch } from './owned';
+import { selectDevice, selectDeviceById } from '../selectors';
 import { fallbackServices } from '../routing/services';
 
 export const FILE_NAMES = {
@@ -61,7 +62,7 @@ async function athenaCall(dongleId, payload, sentryFingerprint, isCurrent = () =
 export function setRouteViewed(dongleId, route) {
   return async (rawDispatch, getState) => {
     const dispatch = ownedDispatch(rawDispatch, getState);
-    const { device } = getState();
+    const device = selectDevice(getState());
     if (!deviceVersionAtLeast(device, '0.9.6')) {
       return;
     }
@@ -297,7 +298,7 @@ async function pollUploadQueueOnce(dongleId, dispatch, getState, target, stillWa
 export function doUpload(dongleId, paths, urls) {
   return async (rawDispatch, getState) => {
     const dispatch = ownedDispatch(rawDispatch, getState);
-    const { device } = getState();
+    const device = selectDeviceById(getState(), dongleId);
     let loopedUploads = !deviceVersionAtLeast(device, '0.8.13');
     if (!loopedUploads) {
       const filesData = paths.map((path, i) => ({

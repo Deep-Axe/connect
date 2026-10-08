@@ -9,6 +9,7 @@ import * as Sentry from '@sentry/react';
 import { storePairToken } from './pairToken';
 
 import { api } from '../api/backend';
+import { selectDevices } from '../selectors';
 import {
   checkLastRoutesData, checkRoutesData, fetchDeviceOnline, fetchSharedDevice, primeFetchSubscription,
 } from '../actions';
@@ -101,7 +102,7 @@ async function resolveRoot(next, ctx) {
   if (!api.auth.isAuthenticated()) return;
   await ctx.session();
   if (!ctx.isCurrent()) return;
-  const device = rememberedOrFirstDevice(ctx.getState().devices || []);
+  const device = rememberedOrFirstDevice(selectDevices(ctx.getState()) || []);
   if (device) {
     // from the latest location on this page, which may carry newer context
     // (including an open dialog)

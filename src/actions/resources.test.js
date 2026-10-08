@@ -66,7 +66,7 @@ it('a hung old queue cannot block the new session and its finally cannot clear t
  newDone({result:[]});await fresh;expect(h.services.uploads.targets.get(A).inFlight).toBe(false);
 });
 it('an unsupported batch reply after logout cannot start its upload fallback',async()=>{
- const h=harness();let reply;h.set({...h.getState(),device:{dongle_id:A,openpilot_version:'0.9.9'}});
+ const h=harness();let reply;h.set({...h.getState(),entities:{...h.getState().entities,devices:{...h.getState().entities.devices,[A]:{dongle_id:A,openpilot_version:'0.9.9'}}}});
  mocks.rpc.mockImplementation((_d,p)=>p.method==='uploadFilesToUrls'?new Promise(r=>reply=r):Promise.resolve({result:[]}));
  const pending=h.dispatch(doUpload(A,[LOG+'--0/qcamera.ts'],['https://signed']));await tick();h.dispatch(endSession());
  reply({error:{code:-32000,data:{message:'too many values to unpack (expected 3)'}}});await pending;

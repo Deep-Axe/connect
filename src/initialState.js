@@ -26,7 +26,12 @@ export function createInitialState() {
     lastRoutes: null,
 
     profile: null,
-    devices: null,
+
+    // data, stored once by key; pages derive what they show (src/selectors.js)
+    entities: {
+      devices: {},          // by dongle id: the account's and shared devices
+      deviceOrder: null,    // the account's devices, sorted; null until loaded
+    },
 
     subscription: null,
     subscribeInfo: null,

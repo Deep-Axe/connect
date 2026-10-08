@@ -3,6 +3,7 @@ import { connect } from 'react-redux';
 
 import { toPrime, toReferrals } from '../../routing/navigate';
 import Notification from '../Notification';
+import { selectDevice } from '../../selectors';
 
 // Change the campaign ID to make a new referral promotion appear again.
 const REFERRAL_DISMISSAL_KEY = 'referrals-09-02-2026';
@@ -49,4 +50,4 @@ const Promotions = ({ device, dispatch }) => {
   );
 };
 
-export default connect((state) => ({ device: state.device }))(Promotions);
+export default connect((state) => ({ device: selectDevice(state) }))(Promotions);

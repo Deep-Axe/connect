@@ -4,6 +4,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import decodeJwt, { InvalidTokenError } from 'jwt-decode';
 
 import { currentOffset } from '../timeline';
+import { selectDeviceById } from '../selectors';
 
 dayjs.extend(relativeTime);
 
@@ -157,10 +158,7 @@ export function deviceVersionAtLeast(device, version) {
 }
 
 export function getDeviceFromState(state, dongleId) {
-  if (state.device?.dongle_id === dongleId) {
-    return state.device;
-  }
-  return state.devices?.find((d) => d.dongle_id === dongleId) || null;
+  return selectDeviceById(state, dongleId);
 }
 
 export function getSegmentNumber(route, offset) {

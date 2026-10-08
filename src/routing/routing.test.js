@@ -10,6 +10,7 @@ const onLocationChanged = (location, action) => ({ type: LOCATION_CHANGE, payloa
 
 import { createInitialState } from '../initialState';
 import { createAppStore } from '../store';
+import { selectDevice, selectDevices } from '../selectors';
 import localforage from 'localforage';
 import { hardNavigate } from '../utils/navigation';
 import { webrtcConnectionManager } from '../utils/webrtc';
@@ -21,7 +22,7 @@ import * as Types from '../actions/types';
 import {
   selectNavLocation, selectSelectedRouteId, selectSelectedRouteMissing, selectSelectionOutOfRange, selectView,
 } from './selectors';
-import { checkRoutesData, leaveForExternalUrl, renameDevice } from '../actions';
+import { checkRoutesData, leaveForExternalUrl, renameDevice, updateDevice, updateDevices } from '../actions';
 import { MODALS, modalOf } from './codec';
 import {
   closeModal, driveBack, leavePage, openModal, openedInteractively, toDashboard, toDriveRange, toPrime,
@@ -476,7 +477,7 @@ describe('PR1 verification findings', () => {
     finishDevices([{ dongle_id: A, is_owner: true }]);
     await settle(); await settle();
     expect(store.getState().profile).toBeNull();
-    expect(store.getState().devices).toBeNull();
+    expect(selectDevices(store.getState())).toBeNull();
 
     // any result started before the end carries the old epoch
     store.dispatch({ type: Types.ACTION_PRIME_SUBSCRIPTION, dongleId: A, subscription: { old: true }, epoch: 0 });
@@ -798,7 +799,7 @@ describe('dialog results belong to their session and navigation', () => {
     store.dispatch(endSession());
     answer({ dongle_id: A, alias: 'Renamed', is_owner: true });
     await rename;
-    expect(store.getState().devices).toBeNull();
+    expect(selectDevices(store.getState())).toBeNull();
   });
 
   it('a Stripe redirect answered after the user left the page does not leave the app', async () => {
@@ -823,5 +824,54 @@ describe('adversarial task destination ownership', () => {
     answer('https://billing.stripe.com/old-task');
     expect(await pending).toBe(false);
     expect(hardNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('devices are stored once, by id', () => {
+  it('a rename shows everywhere and keeps RPC-fetched values', async () => {
+    const { store } = await start(`/${A}`);
+    store.dispatch({ type: Types.ACTION_UPDATE_DEVICE_RPC, dongleId: A, fields: { not_car: true } });
+    store.dispatch(updateDevice({ dongle_id: A, alias: 'Renamed' }));
+    const device = selectDevice(store.getState());
+    expect(device.alias).toBe('Renamed');
+    expect(device.rpc).toEqual({ not_car: true });
+    expect(selectDevices(store.getState()).find((d) => d.dongle_id === A)).toBe(device);
+  });
+
+  it('a refreshed device list keeps RPC-fetched values', async () => {
+    const { store } = await start(`/${A}`);
+    store.dispatch({ type: Types.ACTION_UPDATE_DEVICE_RPC, dongleId: A, fields: { not_car: true } });
+    store.dispatch(updateDevices([{ dongle_id: A, alias: 'From list', is_owner: true }]));
+    expect(selectDevice(store.getState())).toMatchObject({ alias: 'From list', rpc: { not_car: true } });
+  });
+
+  it('selectors return the same objects across unrelated actions', async () => {
+    const { store } = await start(`/${A}/${LOG}`);
+    const devices = selectDevices(store.getState());
+    const device = selectDevice(store.getState());
+    store.dispatch({ type: 'ACTION_SEEK', offset: 1000 }); // a playback tick
+    expect(selectDevices(store.getState())).toBe(devices);
+    expect(selectDevice(store.getState())).toBe(device);
+  });
+
+  it('A -> B -> A reuses the stored device without refetching the list', async () => {
+    const { history, store } = await start(`/${A}`);
+    store.dispatch({ type: Types.ACTION_UPDATE_DEVICE_RPC, dongleId: A, fields: { not_car: true } });
+    history.push(`/${B}`);
+    await settle();
+    expect(selectDevice(store.getState()).dongle_id).toBe(B);
+    history.push(`/${A}`);
+    await settle();
+    // only its online status is refreshed (deliberately, on selection)
+    expect(selectDevice(store.getState())).toMatchObject({ dongle_id: A, rpc: { not_car: true } });
+    expect(api.listDevices).toHaveBeenCalledTimes(1);
+  });
+
+  it('a shared device not in the list is a placeholder until fetched, then stored', async () => {
+    const SHARED = 'cccccccccccccccc';
+    api.fetchDevice.mockResolvedValue({ dongle_id: SHARED, alias: 'Shared', is_owner: false, last_athena_ping: 0 });
+    const { store } = await start(`/${SHARED}`);
+    await settle();
+    expect(selectDevice(store.getState())).toMatchObject({ dongle_id: SHARED, alias: 'Shared' });
   });
 });

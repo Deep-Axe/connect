@@ -2,7 +2,7 @@ export function hasRoutesData(state) {
   if (!state) {
     return false;
   }
-  if (state.devices && state.devices.length === 0 && !state.dongleId) {
+  if (state.entities?.deviceOrder?.length === 0 && !state.dongleId) {
     // new users without devices won't have segment metadata
     return true;
   }

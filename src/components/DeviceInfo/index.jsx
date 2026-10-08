@@ -17,6 +17,7 @@ import VisibilityHandler from '../VisibilityHandler';
 import { subscribeWindowSize } from '../../hooks/window';
 import CommacareBadge from '../CommacareBadge';
 import { LivestreamIcon, CarBatteryIcon, CameraIcon, ContentCut, GamepadIcon } from '../../icons';
+import { selectDevice } from '../../selectors';
 
 const styles = (theme) => ({
   container: {
@@ -504,7 +505,7 @@ class DeviceInfo extends Component {
 
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
-  device: state.device,
+  device: selectDevice(state),
   routes: state.routes,
 });
 

@@ -7,6 +7,7 @@ import Promotions from '../Promotions';
 import DeviceInfo from '../DeviceInfo';
 import FullPageLoading from '../FullPageLoading';
 import { selectIsPrimeView } from '../../routing/selectors';
+import { selectDevice } from '../../selectors';
 
 const Prime = lazy(() => import('../Prime'));
 
@@ -36,7 +37,7 @@ const Dashboard = ({ primeNav, device, dongleId }) => {
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
   primeNav: selectIsPrimeView(state),
-  device: state.device,
+  device: selectDevice(state),
 });
 
 export default connect(stateToProps)(Dashboard);

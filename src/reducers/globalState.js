@@ -6,11 +6,35 @@ import { offsetAt } from '../timeline/offset';
 const eventsMap = {};
 const locationMap = {};
 
-function populateFetchedAt(d) {
-  return {
-    ...d,
-    fetched_at: Math.floor(Date.now() / 1000),
-  };
+// ---- devices: stored once, by id (entities.devices), with the account's
+// sorted list as ids (entities.deviceOrder). The selected device is derived
+// (selectors.selectDevice), never copied.
+
+function withDevices(state, devices, deviceOrder = state.entities.deviceOrder) {
+  return { ...state, entities: { ...state.entities, devices, deviceOrder } };
+}
+
+// Merge into one device, creating it (from the shared-device placeholder)
+// if this is the first we hear of it.
+function updateDeviceEntity(state, dongleId, update) {
+  const previous = state.entities.devices[dongleId] ?? { ...emptyDevice, dongle_id: dongleId };
+  return withDevices(state, { ...state.entities.devices, [dongleId]: update(previous) });
+}
+
+// The account's device list: listed devices are replaced by the new payload,
+// keeping Athena RPC-fetched values (`rpc`) the payload doesn't carry.
+function setDeviceList(state, list, fetchedAt) {
+  const devices = { ...state.entities.devices };
+  list.forEach((device) => {
+    const previous = devices[device.dongle_id];
+    devices[device.dongle_id] = {
+      ...device,
+      ...(previous?.rpc ? { rpc: previous.rpc } : {}),
+      fetched_at: fetchedAt,
+    };
+  });
+  const order = list.map((d) => devices[d.dongle_id]).sort(deviceCompareFn).map((d) => d.dongle_id);
+  return withDevices(state, devices, order);
 }
 
 function deviceCompareFn(a, b) {
@@ -29,17 +53,10 @@ function deviceCompareFn(a, b) {
 function applySelectedDevice(state, dongleId) {
   // interim per-device reset: until resources are keyed by device, data
   // loaded for the previous device must not show under the new one
-  let device = state.devices?.find((d) => d.dongle_id === dongleId)
-    || (state.device?.dongle_id === dongleId ? state.device : null);
-  if (!device && state.devices) {
-    // not in the account's list (shared or public): placeholder until fetched
-    device = { ...emptyDevice, dongle_id: dongleId };
-  }
   const sameRoutes = state.routesMeta && state.routesMeta.dongleId === dongleId;
   return {
     ...state,
     dongleId,
-    device,
     filter: getDefaultFilter(),
     subscription: null,
     subscribeInfo: null,
@@ -134,8 +151,7 @@ function clearPrivateState(state) {
     ...state,
     sessionEpoch: (state.sessionEpoch || 0) + 1,
     profile: null,
-    devices: null,
-    device: null,
+    entities: { ...state.entities, devices: {}, deviceOrder: null },
     subscription: null,
     subscribeInfo: null,
     primeStripeResult: null,
@@ -188,32 +204,11 @@ export default function reducer(_state, action) {
     return _state;
   }
   let state = { ..._state };
-  let deviceIndex = null;
   switch (action.type) {
-    case Types.ACTION_STARTUP_DATA: {
-      const devices = action.devices.map(populateFetchedAt).sort(deviceCompareFn);
-
-      if (!state.dongleId && devices.length > 0) {
-        state = {
-          ...state,
-          device: devices[0],
-        };
-      } else {
-        state = {
-          ...state,
-          device: devices.find((device) => device.dongle_id === state.dongleId),
-        };
-        if (!state.device) {
-          state.device = {
-            ...emptyDevice,
-            dongle_id: state.dongleId,
-          };
-        }
-      }
-      state.devices = devices;
+    case Types.ACTION_STARTUP_DATA:
+      state = setDeviceList(state, action.devices, action.fetchedAt);
       state.profile = action.profile;
       break;
-    }
     case Types.NAVIGATION_COMMITTED: {
       const { location, previous, generation, at } = action;
       state.nav = { location, generation };
@@ -255,47 +250,17 @@ export default function reducer(_state, action) {
       };
       break;
     case Types.ACTION_UPDATE_DEVICES:
-      state = {
-        ...state,
-        devices: action.devices
-          .map((d) => {
-            // `rpc` holds Athena RPC-fetched values that would be wiped by listDevices payload
-            const prev = (_state.devices || []).find((p) => p.dongle_id === d.dongle_id);
-            return prev && prev.rpc ? { ...d, rpc: prev.rpc } : d;
-          })
-          .map(populateFetchedAt)
-          .sort(deviceCompareFn),
-      };
-      if (state.dongleId) {
-        const newDevice = state.devices.find((d) => d.dongle_id === state.dongleId);
-        if (newDevice) {
-          state.device = newDevice;
-        }
-      }
+      state = setDeviceList(state, action.devices, action.fetchedAt);
       break;
     case Types.ACTION_UPDATE_DEVICE: {
-      state = {
-        ...state,
-        devices: state.devices ? [...state.devices] : [],
-      };
-      deviceIndex = state.devices.findIndex((d) => d.dongle_id === action.device.dongle_id);
-      const isSelected = state.device?.dongle_id === action.device.dongle_id;
-      const previousDevice = isSelected ? state.device : state.devices[deviceIndex];
-      const updatedDevice = populateFetchedAt({
-        ...previousDevice, // retains rpc, network_metered
-        ...action.device,  // updates alias and other returned fields
-      });
-
-      if (deviceIndex !== -1) {
-        state.devices[deviceIndex] = updatedDevice;
-      } else {
-        state.devices.unshift(updatedDevice);
+      // e.g. a rename: merge (keeping rpc, network_metered); a device the
+      // list doesn't have yet joins it
+      const { dongle_id: dongleId } = action.device;
+      state = updateDeviceEntity(state, dongleId, (previous) => ({ ...previous, ...action.device, fetched_at: action.fetchedAt }));
+      const order = state.entities.deviceOrder;
+      if (order && !order.includes(dongleId)) {
+        state = withDevices(state, state.entities.devices, [dongleId, ...order]);
       }
-
-      if (isSelected) {
-        state.device = updatedDevice;
-      }
-
       break;
     }
     case Types.ACTION_UPDATE_ROUTE:
@@ -374,81 +339,22 @@ export default function reducer(_state, action) {
       break;
     }
     case Types.ACTION_UPDATE_SHARED_DEVICE:
-      if (action.dongleId === state.dongleId) {
-        state.device = populateFetchedAt(action.device);
-      }
+      // a device the account doesn't list (shared with the user)
+      state = updateDeviceEntity(state, action.dongleId, () => ({ ...action.device, fetched_at: action.fetchedAt }));
       break;
     case Types.ACTION_UPDATE_DEVICE_ONLINE:
-      state = {
-        ...state,
-        devices: [...(state.devices || [])],
-      };
-      deviceIndex = state.devices.findIndex((d) => d.dongle_id === action.dongleId);
-
-      if (deviceIndex !== -1) {
-        state.devices[deviceIndex] = {
-          ...state.devices[deviceIndex],
-          last_athena_ping: action.last_athena_ping,
-          fetched_at: action.fetched_at,
-        };
-      }
-
-      if (state.device?.dongle_id === action.dongleId) {
-        state.device = {
-          ...state.device,
-          last_athena_ping: action.last_athena_ping,
-          fetched_at: action.fetched_at,
-        };
-      }
+      state = updateDeviceEntity(state, action.dongleId, (previous) => ({
+        ...previous, last_athena_ping: action.last_athena_ping, fetched_at: action.fetched_at,
+      }));
       break;
     case Types.ACTION_UPDATE_DEVICE_NETWORK:
-      state = {
-        ...state,
-        devices: [...(state.devices || [])],
-      };
-      deviceIndex = state.devices.findIndex((d) => d.dongle_id === action.dongleId);
-
-      if (deviceIndex !== -1) {
-        state.devices[deviceIndex] = {
-          ...state.devices[deviceIndex],
-          network_metered: action.networkMetered,
-        };
-      }
-
-      if (state.device?.dongle_id === action.dongleId) {
-        state.device = {
-          ...state.device,
-          network_metered: action.networkMetered,
-        };
-      }
+      state = updateDeviceEntity(state, action.dongleId, (previous) => ({ ...previous, network_metered: action.networkMetered }));
       break;
     case Types.ACTION_UPDATE_DEVICE_RPC:
-      // merge RPC-fetched values (e.g. not_car) into a specific device's `rpc` field
-      state = {
-        ...state,
-        devices: [...(state.devices || [])],
-      };
-      deviceIndex = state.devices.findIndex((d) => d.dongle_id === action.dongleId);
-
-      if (deviceIndex !== -1) {
-        state.devices[deviceIndex] = {
-          ...state.devices[deviceIndex],
-          rpc: {
-            ...state.devices[deviceIndex].rpc,
-            ...action.fields,
-          },
-        };
-      }
-
-      if (state.device?.dongle_id === action.dongleId) {
-        state.device = {
-          ...state.device,
-          rpc: {
-            ...state.device.rpc,
-            ...action.fields,
-          },
-        };
-      }
+      // merge RPC-fetched values (e.g. not_car) into the device's `rpc` field
+      state = updateDeviceEntity(state, action.dongleId, (previous) => ({
+        ...previous, rpc: { ...previous.rpc, ...action.fields },
+      }));
       break;
     case Types.ACTION_PRIME_SUBSCRIPTION:
       if (action.dongleId !== state.dongleId) { // ignore outdated info

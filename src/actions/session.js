@@ -76,7 +76,7 @@ export function bootstrapSession() {
         if (profile) {
           Sentry.setUser({ id: profile.id });
         }
-        dispatch({ type: ACTION_STARTUP_DATA, profile, devices, epoch });
+        dispatch({ type: ACTION_STARTUP_DATA, profile, devices, epoch, fetchedAt: Math.floor(Date.now() / 1000) });
         return { profile, devices };
       });
       services.session.promise = promise;

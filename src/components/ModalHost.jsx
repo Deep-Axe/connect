@@ -19,9 +19,9 @@ import Unavailable from './utils/UnavailableDialog';
 // The modal's device, once it can be known: null while the device list is
 // still loading, false when this account cannot see it.
 function targetDevice(state, dongleId) {
-  if (state.device?.dongle_id === dongleId) return state.device;
-  if (state.devices === null) return null;
-  return state.devices.find((d) => d.dongle_id === dongleId) || false;
+  const known = state.entities.devices[dongleId];
+  if (known) return known;
+  return state.entities.deviceOrder === null ? null : false;
 }
 
 const ModalHost = ({ dispatch, location, device, canManage, route, zoom, routes }) => {

@@ -14,7 +14,9 @@ const LOG = '2026-08-06--12-00-00';
 
 // a store-like harness with the real reducer
 function harness(overrides = {}) {
-  let state = { ...createInitialState(), dongleId: A, device: { dongle_id: A }, devices: [{ dongle_id: A }, { dongle_id: B }], ...overrides };
+  let state = {
+    ...createInitialState(), dongleId: A, entities: { devices: { [A]: { dongle_id: A }, [B]: { dongle_id: B } }, deviceOrder: [A, B] }, ...overrides,
+  };
   const services = createRoutingServices();
   const dispatch = (action) => (typeof action === 'function'
     ? action(dispatch, () => state, services)

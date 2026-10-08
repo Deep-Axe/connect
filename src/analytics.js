@@ -5,6 +5,7 @@ import MyCommaAuth from '@commaai/my-comma-auth';
 import * as Types from './actions/types';
 import { anonymizedPath } from './routing/codec';
 import { deviceIsOnline } from './utils';
+import { selectDevice, selectDevices } from './selectors';
 
 function getPageViewEventLocation(location) {
   return location ? anonymizedPath(location) : '';
@@ -46,26 +47,27 @@ function getVideoPercent(state, offset) {
 }
 
 function logSelectDevice(state, params) {
+  const device = selectDevice(state);
   gtag('event', 'select_device', {
     ...params,
-    device_prime_type: state.device?.prime_type,
-    device_type: state.device?.device_type,
-    device_version: state.device?.openpilot_version,
-    device_owner: state.device?.is_owner,
-    device_online: state.device ? deviceIsOnline(state.device) : undefined,
-    device_sim_type: state.device?.sim_type,
-    device_trial_claimed: state.device?.trial_claimed,
+    device_prime_type: device?.prime_type,
+    device_type: device?.device_type,
+    device_version: device?.openpilot_version,
+    device_owner: device?.is_owner,
+    device_online: device ? deviceIsOnline(device) : undefined,
+    device_sim_type: device?.sim_type,
+    device_trial_claimed: device?.trial_claimed,
   });
 
   gtag('set', {
     user_properties: {
-      device_prime_type: state.device?.prime_type,
-      device_type: state.device?.device_type,
-      device_version: state.device?.openpilot_version,
-      device_owner: state.device?.is_owner,
-      device_online: state.device ? deviceIsOnline(state.device) : undefined,
-      device_sim_type: state.device?.sim_type,
-      device_trial_claimed: state.device?.trial_claimed,
+      device_prime_type: device?.prime_type,
+      device_type: device?.device_type,
+      device_version: device?.openpilot_version,
+      device_owner: device?.is_owner,
+      device_online: device ? deviceIsOnline(device) : undefined,
+      device_sim_type: device?.sim_type,
+      device_trial_claimed: device?.trial_claimed,
     },
   });
 }
@@ -135,14 +137,14 @@ function logAction(action, prevState, state) {
         user_properties: {
           superuser: state.profile?.superuser,
           has_prime: state.profile?.prime,
-          devices_count: state.devices?.length,
-          device_prime_type: state.device?.prime_type,
-          device_type: state.device?.device_type,
-          device_version: state.device?.openpilot_version,
-          device_owner: state.device?.is_owner,
-          device_online: state.device ? deviceIsOnline(state.device) : undefined,
-          device_sim_type: state.device?.sim_type,
-          device_trial_claimed: state.device?.trial_claimed,
+          devices_count: selectDevices(state)?.length,
+          device_prime_type: selectDevice(state)?.prime_type,
+          device_type: selectDevice(state)?.device_type,
+          device_version: selectDevice(state)?.openpilot_version,
+          device_owner: selectDevice(state)?.is_owner,
+          device_online: selectDevice(state) ? deviceIsOnline(selectDevice(state)) : undefined,
+          device_sim_type: selectDevice(state)?.sim_type,
+          device_trial_claimed: selectDevice(state)?.trial_claimed,
         },
       });
 
@@ -164,10 +166,10 @@ function logAction(action, prevState, state) {
       return;
 
     case Types.ACTION_UPDATE_DEVICE_ONLINE:
-      if (state.device?.dongleId === action.dongleId) {
+      if (state.dongleId === action.dongleId) {
         gtag('set', {
           user_properties: {
-            device_online: deviceIsOnline(state.device),
+            device_online: deviceIsOnline(selectDevice(state)),
           },
         });
       }

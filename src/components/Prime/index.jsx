@@ -8,6 +8,7 @@ import UnavailableDialog from '../utils/UnavailableDialog';
 import { MODALS } from '../../routing/codec';
 import { closeModal } from '../../routing/navigate';
 import { selectNavLocation } from '../../routing/selectors';
+import { selectDevice } from '../../selectors';
 
 const CloseOnMount = ({ onMount }) => {
   useEffect(() => { onMount(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -50,7 +51,7 @@ const Prime = (props) => {
 
 const stateToProps = (state) => ({
   subscription: state.subscription,
-  device: state.device,
+  device: selectDevice(state),
   profile: state.profile,
   stripeResult: state.primeStripeResult,
   modal: selectNavLocation(state)?.modal?.kind ?? null,
