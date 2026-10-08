@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
 import ClipMenu from './ClipMenu';
 
 const service = vi.hoisted(() => ({
@@ -14,7 +14,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('a newer preview link checks current metadata before rejecting the version', async () => {
+it('new preview URLs reload metadata and release old video', async () => {
   vi.stubGlobal(
     'URL',
     class extends URL {
@@ -45,7 +45,18 @@ it('a newer preview link checks current metadata before rejecting the version', 
   const app = render(<ClipMenu {...props} preview={{ filename: clip.filename, requestedAt: '100' }} />);
   await waitFor(() => expect(document.querySelector('video')).toHaveAttribute('src', 'blob:clip-100'));
   clip = { ...clip, requested_at: 101 };
+  let finishMetadata;
+  service.getClipState.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishMetadata = resolve;
+      }),
+  );
   app.rerender(<ClipMenu {...props} preview={{ filename: clip.filename, requestedAt: '101' }} />);
+  await waitFor(() => expect(document.querySelector('video')).not.toBeInTheDocument());
+  await act(async () => {
+    finishMetadata({ clips: [clip] });
+  });
   await waitFor(() => expect(document.querySelector('video')).toHaveAttribute('src', 'blob:clip-101'));
   expect(service.getClipState).toHaveBeenCalledTimes(2);
 });

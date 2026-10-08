@@ -316,6 +316,7 @@ class ClipMenu extends Component {
       || (previewChanged && this.props.preview));
     if (reload) {
       // A new versioned link needs current metadata before it can be rejected.
+      if (previewChanged) this.closeViewer();
       this.loadedPreviewKey = null;
       this.loadClips();
     } else if (prevProps.preview !== this.props.preview || prevState.clips !== this.state.clips
