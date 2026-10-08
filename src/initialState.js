@@ -1,9 +1,15 @@
-import { getDongleID, getRouteId, getRouteZoom, getPrimeNav, getStreamNav } from './url';
 import { getDefaultFilter } from './utils/filter';
 
-export function createInitialState(pathname = window.location.pathname) {
+// Environment-independent: navigation state is filled in by the routing
+// middleware from the router's first location, never from window.location.
+export function createInitialState() {
   return {
-    dongleId: getDongleID(pathname),
+    nav: {
+      location: null,   // parsed URL, written only by NAVIGATION_COMMITTED
+      generation: 0,
+    },
+    dongleId: null,     // selected device, mirrors the last URL that named one
+    sessionEpoch: 0,    // bumped when the signed-in session ends
 
     desiredPlaySpeed: 1,    // speed set by user
     isBufferingVideo: true, // if we're currently buffering for more data
@@ -22,10 +28,9 @@ export function createInitialState(pathname = window.location.pathname) {
     profile: null,
     devices: null,
 
-    primeNav: getPrimeNav(pathname),
-    streamNav: getStreamNav(pathname),
     subscription: null,
     subscribeInfo: null,
+    primeStripeResult: null,
 
     files: null,
     filesUploading: {},
@@ -35,9 +40,8 @@ export function createInitialState(pathname = window.location.pathname) {
     },
 
     filter: getDefaultFilter(),
-    zoom: getRouteZoom(pathname),
+    zoom: null,
     loop: null,
-    selectedRouteId: getRouteId(pathname),
     limit: 0,
   };
 }

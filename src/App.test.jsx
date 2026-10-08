@@ -4,6 +4,7 @@ import { createMemoryHistory } from 'history';
 
 import App from './App';
 import { createInitialState } from './initialState';
+import { selectSelectedRouteId } from './routing/selectors';
 import { createAppStore } from './store';
 
 const mocks = vi.hoisted(() => ({ authenticated: true, options: {}, requests: [], hardNavigate: vi.fn() }));
@@ -130,7 +131,7 @@ async function renderApp(pathname, options = {}) {
   window.history.replaceState({}, '', pathname);
   if (options.selected) localStorage.setItem('selectedDongleId', options.selected);
   const history = createMemoryHistory({ initialEntries: [pathname] });
-  const store = createAppStore(history, createInitialState(history.location.pathname));
+  const store = createAppStore(history, createInitialState());
   const view = render(<App history={history} store={store} />);
   await waitFor(
     () => expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument(),
@@ -226,8 +227,8 @@ describe('whole-app behavior', () => {
     expect(await screen.findByRole('slider', { name: 'Drive timeline' })).toBeVisible();
     expect(history.location.pathname).toBe(pathname);
     const ranged = pathname.endsWith('/10/20');
+    expect(selectSelectedRouteId(store.getState())).toBe(LOG);
     expect(store.getState()).toMatchObject({
-      selectedRouteId: LOG,
       zoom: { start: ranged ? 10000 : 0, end: ranged ? 20000 : 60000 },
       loop: { startTime: ranged ? 10000 : 0, duration: ranged ? 10000 : 60000 },
     });
@@ -244,7 +245,7 @@ describe('whole-app behavior', () => {
   test('a missing public route redirects to login with the requested route', async () => {
     const pathname = `/${FIRST}/2026-08-06--99-99-99`;
     await renderApp(pathname, { authenticated: false });
-    await waitFor(() => expect(mocks.hardNavigate).toHaveBeenCalledWith(`/?r=${pathname}`));
+    await waitFor(() => expect(mocks.hardNavigate).toHaveBeenCalledWith(`/?r=${encodeURIComponent(pathname)}`));
   });
 
   test('legacy timestamp URL converts after a successful lookup', async () => {

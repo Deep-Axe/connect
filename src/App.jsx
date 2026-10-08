@@ -9,7 +9,8 @@ import MyCommaAuth, { config as AuthConfig, storage as AuthStorage } from '@comm
 import { athena as Athena, billing as Billing, request as Request } from './api';
 import { api, initBackend } from './api/backend';
 
-import { getZoom, getRouteId, getDongleID, getStreamNav } from './url';
+import { VIEWS, isSafeReturnUrl, parseLocation } from './routing/codec';
+import { bootstrapSession, endSession } from './actions/session';
 import { webrtcConnectionManager } from './utils/webrtc';
 import { fetchTurnCredentials } from './utils/turn';
 import defaultStore, { history as defaultHistory } from './store';
@@ -27,12 +28,11 @@ class App extends Component {
     this.state = {
       initialized: false,
     };
+    this.apiErrorResponseCallback = this.apiErrorResponseCallback.bind(this);
 
-    let pairToken;
-    if (window.location) {
-      pairToken = new URLSearchParams(window.location.search).get('pair');
-    }
-
+    // the pair command is consumed (removed from the URL) by the navigation
+    // effects; store the token before the explorer reads it
+    const { pair: pairToken } = parseLocation(this.history().location).commands;
     if (pairToken) {
       try {
         localforage.setItem('pairToken', pairToken);
@@ -42,9 +42,18 @@ class App extends Component {
     }
   }
 
+  store() {
+    return this.props.store || defaultStore;
+  }
+
+  history() {
+    return this.props.history || defaultHistory;
+  }
+
   apiErrorResponseCallback(resp) {
     if (resp.status === 401) {
       MyCommaAuth.logOut();
+      this.store().dispatch(endSession());
     }
   }
 
@@ -53,12 +62,12 @@ class App extends Component {
     // everything else the real backend.
     initBackend();
 
-    if (window.location) {
-      if (window.location.pathname === AuthConfig.AUTH_PATH) {
+    const { base, commands } = parseLocation(this.history().location);
+    if (base.view === VIEWS.AUTH) {
+      if (this.history().location.pathname === AuthConfig.AUTH_PATH) {
         try {
-          const authParams = new URLSearchParams(window.location.search);
-          const provider = authParams.get('provider');
-          const token = await api.auth.refreshAccessToken(authParams.get('code'), provider);
+          const { provider } = commands;
+          const token = await api.auth.refreshAccessToken(commands.code, provider);
           if (token) {
             AuthStorage.setCommaAccessToken(token);
             localStorage.setItem('lastLoginProvider', provider);
@@ -78,10 +87,8 @@ class App extends Component {
 
       // Reloading: start the webrtc handshake as soon as the API is authed, so it runs in parallel
       // with the lazy explorer chunk load and redux/device init instead of behind them.
-      const { pathname } = window.location;
-      const teleopDongleId = getDongleID(pathname);
-      if (teleopDongleId && getStreamNav(pathname)) {
-        webrtcConnectionManager.reconnect(teleopDongleId);
+      if (base.view === VIEWS.STREAM) {
+        webrtcConnectionManager.reconnect(base.dongleId);
       }
 
       fetchTurnCredentials().catch((err) => {
@@ -89,6 +96,9 @@ class App extends Component {
         Sentry.captureException(err, { fingerprint: 'app_fetch_turn_credentials' });
       });
     }
+
+    // profile and device list, independent of which page is open
+    this.store().dispatch(bootstrapSession());
 
     this.setState({ initialized: true });
   }
@@ -99,7 +109,7 @@ class App extends Component {
       url = sessionStorage.getItem('redirectURL');
       sessionStorage.removeItem('redirectURL');
     }
-    return url;
+    return isSafeReturnUrl(url) ? url : '/';
   }
 
   authRoutes() {
@@ -129,9 +139,11 @@ class App extends Component {
       return <FullPageLoading />;
     }
 
-    const { store = defaultStore, history = defaultHistory } = this.props;
-    const pathname = history.location.pathname;
-    const showLogin = !api.auth.isAuthenticated() && !getZoom(pathname) && !getRouteId(pathname);
+    const store = this.store();
+    const history = this.history();
+    // signed-out visitors can open public drives (and legacy drive links)
+    const { view } = parseLocation(history.location).base;
+    const showLogin = !api.auth.isAuthenticated() && view !== VIEWS.DRIVE && view !== VIEWS.LEGACY_RANGE;
     let content = (
       <Suspense fallback={<FullPageLoading />}>
         { showLogin ? this.anonymousRoutes() : this.authRoutes() }

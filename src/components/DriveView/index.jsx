@@ -4,7 +4,8 @@ import dayjs from 'dayjs';
 
 import { IconButton, Typography } from '@material-ui/core';
 
-import { popTimelineRange, pushTimelineRange } from '../../actions';
+import { VIEWS, buildUrl, deviceBase, locationFor } from '../../routing/codec';
+import { driveBack, toDashboard } from '../../routing/navigate';
 import { ArrowBackBold, CloseBold } from '../../icons';
 import { filterRegularClick } from '../../utils';
 
@@ -17,18 +18,8 @@ class DriveView extends Component {
     this.close = this.close.bind(this);
   }
 
-  onBack(zoom, currentRoute) {
-    if (zoom.previous) {
-      this.props.dispatch(popTimelineRange(currentRoute?.log_id));
-    } else if (currentRoute) {
-      this.props.dispatch(
-        pushTimelineRange(currentRoute.log_id, null, null),
-      );
-    }
-  }
-
   close() {
-    this.props.dispatch(pushTimelineRange(null, null, null));
+    this.props.dispatch(toDashboard(this.props.dongleId));
   }
 
   render() {
@@ -42,8 +33,8 @@ class DriveView extends Component {
       );
     }
 
-    const currentRouteBoundsSelected = zoom.start === 0 && zoom.end === currentRoute.duration;
-    const backButtonDisabled = !zoom?.previousZoom && currentRouteBoundsSelected;
+    // back zooms out of a selection; the whole drive has nothing to zoom out of
+    const backButtonDisabled = zoom.start === 0 && zoom.end === currentRoute.duration;
 
     // FIXME: end time not always same day as start time
     const start = currentRoute.start_time_utc_millis + zoom.start;
@@ -58,7 +49,7 @@ class DriveView extends Component {
           <div>
             <div className="items-center justify-between flex p-3 gap-2">
               <IconButton
-                onClick={ () => this.onBack(zoom, currentRoute) }
+                onClick={ () => this.props.dispatch(driveBack()) }
                 aria-label="Go Back"
                 disabled={ backButtonDisabled }
               >
@@ -78,7 +69,7 @@ class DriveView extends Component {
               <IconButton
                 onClick={ filterRegularClick(this.close) }
                 aria-label="Close"
-                href={ `/${dongleId}` }
+                href={ buildUrl(locationFor(deviceBase(VIEWS.DASHBOARD, dongleId))) }
               >
                 <CloseBold />
               </IconButton>
