@@ -56,10 +56,14 @@ function applySelectedDevice(state, dongleId) {
 
 // Effective bounds: the URL's selection intersected with the route, so a
 // range rounded up past the end of the drive plays to the end without
-// rewriting the URL.
+// rewriting the URL. A selection entirely after the end has no effective
+// bounds (null); the drive view shows it as an invalid selection.
 function effectiveZoom(drive, route) {
   if (drive.start == null) {
     return route ? { start: 0, end: route.duration } : null;
+  }
+  if (route && drive.start >= route.duration) {
+    return null;
   }
   if (route && drive.start < route.duration && drive.end > route.duration) {
     return { start: drive.start, end: route.duration };
@@ -463,12 +467,15 @@ export default function reducer(_state, action) {
           };
           const drive = state.nav.location.base.drive;
           const zoom = effectiveZoom(drive, state.currentRoute);
-          if (!state.zoom || state.zoom.end !== zoom.end) {
+          if (!zoom) {
+            state.zoom = null;
+            state.loop = null;
+          } else if (!state.zoom || state.zoom.end !== zoom.end) {
             state.zoom = zoom;
             state.loop = null;
           }
 
-          if (!state.loop || !state.loop.startTime || !state.loop.duration) {
+          if (state.zoom && (!state.loop || !state.loop.startTime || !state.loop.duration)) {
             state.loop = {
               startTime: state.zoom.start,
               duration: state.zoom.end - state.zoom.start,

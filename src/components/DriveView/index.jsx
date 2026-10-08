@@ -2,10 +2,11 @@ import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import dayjs from 'dayjs';
 
-import { IconButton, Typography } from '@material-ui/core';
+import { Button, IconButton, Typography } from '@material-ui/core';
 
 import { VIEWS, buildUrl, deviceBase, locationFor } from '../../routing/codec';
-import { driveBack, toDashboard } from '../../routing/navigate';
+import { driveBack, toDashboard, toDrive } from '../../routing/navigate';
+import { selectSelectionOutOfRange } from '../../routing/selectors';
 import { ArrowBackBold, CloseBold } from '../../icons';
 import { filterRegularClick } from '../../utils';
 
@@ -23,12 +24,26 @@ class DriveView extends Component {
   }
 
   render() {
-    const { dongleId, zoom, currentRoute, routes } = this.props;
+    const { dongleId, zoom, currentRoute, routes, selectionOutOfRange } = this.props;
 
     if (!currentRoute) {
       return (
         <div className="DriveView p-8">
           <Typography>{routes === null ? 'Loading...' : 'Route does not exist.'}</Typography>
+        </div>
+      );
+    }
+
+    if (selectionOutOfRange || !zoom) {
+      return (
+        <div className="DriveView flex flex-col items-start gap-4 p-8">
+          <Typography>This link selects a time after the end of the drive.</Typography>
+          <Button
+            variant="outlined"
+            onClick={ () => this.props.dispatch(toDrive(dongleId, currentRoute.log_id)) }
+          >
+            View whole drive
+          </Button>
         </div>
       );
     }
@@ -92,6 +107,7 @@ const stateToProps = (state) => ({
   routes: state.routes,
   zoom: state.zoom,
   currentRoute: state.currentRoute,
+  selectionOutOfRange: selectSelectionOutOfRange(state),
 });
 
 export default connect(stateToProps)(DriveView);

@@ -10,7 +10,7 @@ const onLocationChanged = (location, action) => ({ type: LOCATION_CHANGE, payloa
 
 import { createInitialState } from '../initialState';
 import { createAppStore } from '../store';
-import { selectSelectedRouteId, selectView } from './selectors';
+import { selectSelectedRouteId, selectSelectionOutOfRange, selectView } from './selectors';
 import { driveBack, leavePage, toDriveRange, toPrime } from './navigate';
 
 const api = vi.hoisted(() => ({
@@ -145,6 +145,21 @@ describe('one URL → state path', () => {
     const cold = await start(`/${A}/${LOG}/30/61`);
     expect(cold.history.location.pathname).toBe(`/${A}/${LOG}/30/61`);
     expect(cold.store.getState().zoom).toEqual({ start: 30000, end: 60123 });
+  });
+
+  it('a selection after the end of the drive has no effective range and is flagged', async () => {
+    const { history, store } = await start(`/${A}/${LOG}/70/80`);
+    expect(history.location.pathname).toBe(`/${A}/${LOG}/70/80`);
+    expect(store.getState().currentRoute.duration).toBe(60000);
+    expect(store.getState().zoom).toBeNull();
+    expect(store.getState().loop).toBeNull();
+    expect(selectSelectionOutOfRange(store.getState())).toBe(true);
+
+    store.dispatch(driveBack());
+    await settle();
+    expect(history.location.pathname).toBe(`/${A}/${LOG}`);
+    expect(store.getState().zoom).toEqual({ start: 0, end: 60000 });
+    expect(selectSelectionOutOfRange(store.getState())).toBe(false);
   });
 
   it('rounds a timeline selection outward once and commits exactly the URL', async () => {
