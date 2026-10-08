@@ -3,7 +3,8 @@ import * as Sentry from '@sentry/react';
 import * as Types from './types';
 import { api } from '../api/backend';
 import { reverseLookup } from '../utils/geocode';
-import { ownedDispatch } from './owned';
+import { assetCacheFor } from '../resources/assetCache';
+import { runResourceRequest } from '../resources/requests';
 import { fallbackServices } from '../routing/services';
 
 const USE_LOCAL_COORDS_DATA = import.meta.env.VITE_APP_LOCAL_COORDS_DATA === 'true';
@@ -13,135 +14,6 @@ if (USE_LOCAL_COORDS_DATA) {
 const USE_LOCAL_EVENTS_DATA = import.meta.env.VITE_APP_LOCAL_EVENTS_DATA === 'true';
 if (USE_LOCAL_EVENTS_DATA) {
   console.warn('using local events data');
-}
-
-let hasExpired = false;
-let cacheDB = null;
-
-async function getCacheDB() {
-  if (cacheDB !== null) {
-    return Promise.resolve(cacheDB);
-  }
-
-  if (!window.indexedDB) {
-    return Promise.resolve(null);
-  }
-
-  let request;
-  try {
-    request = window.indexedDB.open('cacheDB', 2);
-  } catch (err) {
-    console.error(err);
-    Sentry.captureException(err, { fingerprint: 'cached_open_indexeddb' });
-    return Promise.resolve(null);
-  }
-
-  return new Promise((resolve) => {
-    request.onerror = (ev) => {
-      console.log(ev.target.error);
-      resolve(null);
-    };
-    request.onsuccess = (ev) => {
-      const db = ev.target.result;
-      for (const store of ['events', 'coords', 'driveCoords']) {
-        if (!db.objectStoreNames.contains(store)) {
-          console.log('cannot find store in indexedDB', store);
-          resolve(null);
-        }
-      }
-      cacheDB = db;
-      resolve(db);
-    };
-    request.onupgradeneeded = (ev) => {
-      const db = ev.target.result;
-
-      for (const store of db.objectStoreNames) {
-        try {
-          db.deleteObjectStore(store);
-        } catch (err) {
-          console.error(err);
-          Sentry.captureException(err, { fingerprint: 'cached_delete_obj_store' });
-          resolve(null);
-          return;
-        }
-      }
-
-      const routeStore = db.createObjectStore('events', { keyPath: 'key' });
-      routeStore.createIndex('key', 'key', { unique: true });
-      routeStore.createIndex('expiry', 'expiry', { unique: false });
-      const coordsStore = db.createObjectStore('coords', { keyPath: 'key' });
-      coordsStore.createIndex('key', 'key', { unique: true });
-      coordsStore.createIndex('expiry', 'expiry', { unique: false });
-      const driveCoordsStore = db.createObjectStore('driveCoords', { keyPath: 'key' });
-      driveCoordsStore.createIndex('key', 'key', { unique: true });
-      driveCoordsStore.createIndex('expiry', 'expiry', { unique: false });
-    };
-  });
-}
-
-async function expireCacheItems(store) {
-  const db = await getCacheDB();
-  if (!db) {
-    return;
-  }
-
-  const transaction = db.transaction([store], 'readwrite');
-  const objStore = transaction.objectStore(store);
-
-  const idx = IDBKeyRange.upperBound(Math.floor(Date.now() / 1000));
-  const req = objStore.index('expiry').openCursor(idx);
-  req.onsuccess = (ev) => {
-    const cursor = ev.target.result;
-    if (cursor) {
-      objStore.delete(cursor.primaryKey);
-      cursor.continue();
-    }
-  };
-}
-
-async function getCacheItem(store, key, version = undefined) {
-  if (!hasExpired) {
-    setTimeout(() => expireCacheItems(store), 5000); // TODO: better expire time
-    hasExpired = true;
-  }
-
-  const db = await getCacheDB();
-  if (!db) {
-    return null;
-  }
-
-  const transaction = db.transaction([store]);
-  const req = transaction.objectStore(store).get(key);
-
-  return new Promise((resolve, reject) => {
-    req.onsuccess = (ev) => {
-      if (ev.target.result !== undefined && (version === undefined || ev.target.result.version >= version)) {
-        resolve(ev.target.result.data);
-      } else {
-        resolve(null);
-      }
-    };
-    req.onerror = (ev) => reject(ev.target.error);
-  });
-}
-
-async function setCacheItem(store, key, expiry, data, version = undefined) {
-  const db = await getCacheDB();
-  if (!db) {
-    return null;
-  }
-
-  const transaction = db.transaction([store], 'readwrite');
-  const val = { key, expiry, data };
-  if (version !== undefined) {
-    val.version = version;
-  }
-  const req = transaction.objectStore(store).put(val);
-
-  return new Promise((resolve, reject) => {
-    req.onsuccess = (ev) => resolve(ev.target.result);
-    req.onerror = (ev) => reject(ev.target.error);
-  });
 }
 
 function parseEvents(route, driveEvents) {
@@ -258,154 +130,107 @@ function parseEvents(route, driveEvents) {
   return res;
 }
 
-// In-flight asset requests, per store (see routing/services). A request
-// leaves its map as soon as it settles, success or failure, so a failure can
-// be retried; settled data lives in IndexedDB and Redux, not here.
-function inFlight(map, key, load) {
-  if (!map.has(key)) {
-    const request = Promise.resolve().then(load).catch((err) => {
-      console.error(err);
-      return null;
-    }).finally(() => {
-      if (map.get(key) === request) map.delete(key);
-    });
-    map.set(key, request);
-  }
-  return map.get(key);
-}
-
-// A segment's asset file: 404 means the file doesn't exist (an empty part);
-// any other failure fails the whole request, so it is not remembered as
-// loaded and can be retried.
+// A 404 denotes a missing segment; transport and parse failures remain retryable.
 async function assetJson(resp) {
   if (resp.ok) return resp.json();
   if (resp.status === 404) return [];
   throw new Error(`asset request failed: HTTP ${resp.status}`);
 }
 
-function routeLoaded(state, route, field) {
-  const loaded = state.entities?.routes?.[route.fullname];
-  return Boolean(loaded?.[field]);
-}
-
-export function fetchEvents(route) {
-  return async (rawDispatch, getState, services = fallbackServices) => {
-    const dispatch = ownedDispatch(rawDispatch, getState);
-    const state = getState();
-    if (!state.entities?.routes?.[route.fullname] || routeLoaded(state, route, 'events')) {
-      return;
-    }
-
-    // events depend on how many qlogs the route has (maxqlog)
-    const driveEvents = await inFlight(services.requests.events, `${route.fullname}|${route.maxqlog}`, async () => {
-      if (!USE_LOCAL_EVENTS_DATA) {
-        const cacheEvents = await getCacheItem('events', route.fullname, route.maxqlog);
-        if (cacheEvents !== null) return cacheEvents;
-      }
-      const parts = await Promise.all(Array.from({ length: route.maxqlog + 1 }, async (_, j) => {
-        const url = new URL(api.routeAssets.events(route, j));
-        if (USE_LOCAL_EVENTS_DATA) {
-          url.hostname = 'chffrprivate.azureedge.local';
-        }
-        const resp = await fetch(url, { method: 'GET' });
-        return assetJson(resp);
-      }));
-      const events = parseEvents(route, [].concat(...parts));
-      if (!USE_LOCAL_EVENTS_DATA) {
-        setCacheItem('events', route.fullname, Math.floor(Date.now() / 1000) + (86400 * 14), events, route.maxqlog);
-      }
-      return events;
-    });
-    if (driveEvents === null) return;
-
-    dispatch({
-      type: Types.ACTION_UPDATE_ROUTE_EVENTS,
-      fullname: route.fullname,
-      maxqlog: route.maxqlog,
-      events: driveEvents,
-    });
+function assetOwner(getState, route) {
+  const epoch = getState().sessionEpoch;
+  return () => {
+    const current = getState().entities?.routes?.[route.fullname];
+    return Boolean(current && getState().sessionEpoch === epoch && current.maxqlog === route.maxqlog);
   };
 }
 
-export function fetchCoord(route, coord, locationKey) {
-  return async (rawDispatch, getState, services = fallbackServices) => {
-    const dispatch = ownedDispatch(rawDispatch, getState);
-    const state = getState();
-    if (!state.entities?.routes?.[route.fullname] || (!coord[0] && !coord[1]) || routeLoaded(state, route, locationKey)) {
-      return;
-    }
+function routeLoaded(state, route, field) {
+  const loaded = state.entities.routes[route.fullname];
+  return loaded?.[field] !== undefined && loaded[`${field}Version`] === route.maxqlog;
+}
 
-    // round for better caching
-    coord[0] = Math.round(coord[0] * 1000) / 1000;
-    coord[1] = Math.round(coord[1] * 1000) / 1000;
+async function loadParts(route, getUrl, local, isCurrent) {
+  return Promise.all(Array.from({ length: route.maxqlog + 1 }, async (_, segment) => {
+    if (!isCurrent()) throw new Error('Asset request superseded');
+    const url = new URL(getUrl(route, segment));
+    if (local) url.hostname = 'chffrprivate.azureedge.local';
+    const resp = await fetch(url.href, { method: 'GET' });
+    return assetJson(resp);
+  }));
+}
 
-    const location = await inFlight(services.requests.coords, JSON.stringify(coord), async () => {
-      const cacheCoords = await getCacheItem('coords', coord);
-      if (cacheCoords !== null) return cacheCoords;
+export function fetchEvents(route) {
+  return (dispatch, getState, services = fallbackServices) => {
+    const isCurrent = assetOwner(getState, route);
+    if (!isCurrent() || routeLoaded(getState(), route, 'events')) return Promise.resolve();
+    const cache = assetCacheFor(services);
+    return runResourceRequest(services, getState, `events|${route.fullname}|${route.maxqlog}`, async () => {
+      if (!USE_LOCAL_EVENTS_DATA) {
+        const stored = await cache.read('events', route.fullname, route.maxqlog, isCurrent);
+        if (stored !== null) return stored;
+      }
+      if (!isCurrent()) return null;
+      const parts = await loadParts(route, api.routeAssets.events, USE_LOCAL_EVENTS_DATA, isCurrent);
+      const events = parseEvents(route, [].concat(...parts));
+      if (!USE_LOCAL_EVENTS_DATA) await cache.write('events', route.fullname, Math.floor(Date.now() / 1000) + 86400 * 14, events, route.maxqlog, isCurrent);
+      return events;
+    }, (events, ownership) => {
+      if (events !== null && isCurrent()) dispatch({ type: Types.ACTION_UPDATE_ROUTE_EVENTS, fullname: route.fullname, maxqlog: route.maxqlog, events, epoch: ownership.epoch, requestId: ownership.requestId });
+    }).catch((error) => { console.error(error); Sentry.captureException(error); return null; });
+  };
+}
+
+export function fetchCoord(route, coordinate, locationKey) {
+  return (dispatch, getState, services = fallbackServices) => {
+    const epoch = getState().sessionEpoch;
+    const prefix = locationKey === 'startLocation' ? 'start' : 'end';
+    const isCurrent = () => {
+      const current = getState().entities?.routes?.[route.fullname];
+      return getState().sessionEpoch === epoch && current
+        && current[`${prefix}_lng`] === route[`${prefix}_lng`] && current[`${prefix}_lat`] === route[`${prefix}_lat`];
+    };
+    if (!isCurrent() || (!coordinate[0] && !coordinate[1]) || getState().entities.routes[route.fullname][locationKey]) return Promise.resolve();
+    const coord = coordinate.map(value => Math.round(value * 1000) / 1000);
+    const cache = assetCacheFor(services);
+    return runResourceRequest(services, getState, `coords|${route.fullname}|${locationKey}|${JSON.stringify(coord)}`, async () => {
+      const stored = await cache.read('coords', coord, undefined, isCurrent);
+      if (stored !== null) return stored;
+      if (!isCurrent()) return null;
       const found = await reverseLookup(coord);
-      if (found) setCacheItem('coords', coord, Math.floor(Date.now() / 1000) + (86400 * 14), found);
+      if (found) await cache.write('coords', coord, Math.floor(Date.now() / 1000) + 86400 * 14, found, undefined, isCurrent);
       return found || null;
-    });
-    if (!location) return;
-
-    dispatch({
-      type: Types.ACTION_UPDATE_ROUTE_LOCATION,
-      fullname: route.fullname,
-      locationKey,
-      location,
-    });
+    }, (location, ownership) => {
+      if (location && isCurrent()) dispatch({ type: Types.ACTION_UPDATE_ROUTE_LOCATION, fullname: route.fullname, locationKey, location, epoch: ownership.epoch, requestId: ownership.requestId });
+    }).catch((error) => { console.error(error); Sentry.captureException(error); return null; });
   };
 }
 
 export function fetchLocations(route) {
-  return (dispatch, getState) => {
-    dispatch(fetchCoord(route, [route.start_lng, route.start_lat], 'startLocation'));
-    dispatch(fetchCoord(route, [route.end_lng, route.end_lat], 'endLocation'));
-  };
+  return (dispatch) => Promise.all([
+    dispatch(fetchCoord(route, [route.start_lng, route.start_lat], 'startLocation')),
+    dispatch(fetchCoord(route, [route.end_lng, route.end_lat], 'endLocation')),
+  ]);
 }
 
 export function fetchDriveCoords(route) {
-  return async (rawDispatch, getState, services = fallbackServices) => {
-    const dispatch = ownedDispatch(rawDispatch, getState);
-    const state = getState();
-    if (!state.entities?.routes?.[route.fullname] || routeLoaded(state, route, 'driveCoords')) {
-      return;
-    }
-
-    const driveCoords = await inFlight(services.requests.driveCoords, `${route.fullname}|${route.maxqlog}`, async () => {
+  return (dispatch, getState, services = fallbackServices) => {
+    const isCurrent = assetOwner(getState, route);
+    if (!isCurrent() || routeLoaded(getState(), route, 'driveCoords')) return Promise.resolve();
+    const cache = assetCacheFor(services);
+    return runResourceRequest(services, getState, `driveCoords|${route.fullname}|${route.maxqlog}`, async () => {
       if (!USE_LOCAL_COORDS_DATA) {
-        const cacheDriveCoords = await getCacheItem('driveCoords', route.fullname, route.maxqlog);
-        if (cacheDriveCoords !== null) return cacheDriveCoords;
+        const stored = await cache.read('driveCoords', route.fullname, route.maxqlog, isCurrent);
+        if (stored !== null) return stored;
       }
-      const parts = await Promise.all(Array.from({ length: route.maxqlog + 1 }, async (_, j) => {
-        const url = new URL(api.routeAssets.coords(route, j));
-        if (USE_LOCAL_COORDS_DATA) {
-          url.hostname = 'chffrprivate.azureedge.local';
-        }
-        const resp = await fetch(url, { method: 'GET' });
-        return assetJson(resp);
-      }));
-      const coords = parts.reduce((prev, curr) => ({
-        ...prev,
-        ...curr.reduce((p, cs) => {
-          p[cs.t] = [cs.lng, cs.lat];
-          return p;
-        }, {}),
-      }), {});
-      if (!USE_LOCAL_COORDS_DATA) {
-        setCacheItem('driveCoords', route.fullname, Math.floor(Date.now() / 1000) + (86400 * 14), coords, route.maxqlog);
-      }
+      if (!isCurrent()) return null;
+      const parts = await loadParts(route, api.routeAssets.coords, USE_LOCAL_COORDS_DATA, isCurrent);
+      const coords = Object.fromEntries(parts.flat().map(coord => [coord.t, [coord.lng, coord.lat]]));
+      if (!USE_LOCAL_COORDS_DATA) await cache.write('driveCoords', route.fullname, Math.floor(Date.now() / 1000) + 86400 * 14, coords, route.maxqlog, isCurrent);
       return coords;
-    });
-    if (driveCoords === null) return;
-
-    dispatch({
-      type: Types.ACTION_UPDATE_ROUTE,
-      fullname: route.fullname,
-      maxqlog: route.maxqlog,
-      route: {
-        driveCoords,
-      },
-    });
+    }, (driveCoords, ownership) => {
+      if (driveCoords !== null && isCurrent()) dispatch({ type: Types.ACTION_UPDATE_ROUTE, fullname: route.fullname, maxqlog: route.maxqlog,
+        route: { driveCoords, driveCoordsVersion: route.maxqlog }, epoch: ownership.epoch, requestId: ownership.requestId });
+    }).catch((error) => { console.error(error); Sentry.captureException(error); return null; });
   };
 }

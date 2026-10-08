@@ -9,7 +9,7 @@ import { withStyles, Typography, Menu, MenuItem, CircularProgress, Button, Poppe
 
 import { USERADMIN_URL_ROOT } from '../../api';
 import { api } from '../../api/backend';
-import { deviceSupportsClips } from '../../api/clips';
+import { getClipService } from '../../actions/clips';
 
 import DriveMap from '../DriveMap';
 import DriveVideo from '../DriveVideo';
@@ -24,7 +24,7 @@ import Colors from '../../colors';
 import { ContentCopy, InfoOutline, ShareIcon, WarningIcon } from '../../icons';
 import { deviceIsOnline, deviceOnCellular, getSegmentNumber } from '../../utils';
 import { stringifyQuery } from '../../utils/query';
-import { analyticsEvent, updateRoute } from '../../actions';
+import { analyticsEvent, updateRoute, invalidateRoutes } from '../../actions';
 import { fetchEvents } from '../../actions/cached';
 import { attachRelTime } from '../../analytics';
 import { setRouteViewed, fetchFiles, doUpload, fetchUploadUrls, fetchAthenaQueue, updateFiles, FILE_NAMES } from '../../actions/files';
@@ -312,9 +312,10 @@ export class Media extends Component {
 
   async checkClipsSupport() {
     const { device, dongleId } = this.props;
+    const service = this.props.dispatch(getClipService());
     try {
-      const clipsSupported = await deviceSupportsClips(device);
-      if (this.mounted && dongleId === this.props.dongleId) this.setState({ clipsSupported });
+      const clipsSupported = await service.deviceSupportsClips(device);
+      if (this.mounted && service.isActive() && dongleId === this.props.dongleId && device?.openpilot_version === this.props.device?.openpilot_version) this.setState({ clipsSupported });
     } catch (error) {
       // The button stays hidden when Athena is unavailable or too old.
     }
@@ -509,16 +510,17 @@ export class Media extends Component {
     const fullname = this.props.currentRoute?.fullname;
     if (!fullname) return null;
     this.routeAttempts ??= {};
+    const key = `${fullname}|${kind}`;
     const generation = this.routeRuntimeGeneration ?? 0;
-    const attempt = (this.routeAttempts[kind] ?? 0) + 1;
-    this.routeAttempts[kind] = attempt;
+    const attempt = (this.routeAttempts[key] ?? 0) + 1;
+    this.routeAttempts[key] = attempt;
     const lease = this.props.dispatch(captureOperation({
-      resource: (state) => selectCurrentRoute(state)?.fullname === fullname,
+      resource: (state) => Boolean(state.entities.routes[fullname]),
     }));
+    const owned = () => lease.isCurrent() && this.routeAttempts[key] === attempt;
     return {
-      fullname, dongleId: this.props.dongleId, dispatch: lease.dispatch,
-      active: () => this.mounted && lease.isCurrent()
-        && this.props.currentRoute?.fullname === fullname && this.routeAttempts[kind] === attempt
+      fullname, dongleId: this.props.dongleId, dispatch: lease.dispatch, owned,
+      active: () => this.mounted && owned() && this.props.currentRoute?.fullname === fullname
         && (this.routeRuntimeGeneration ?? 0) === generation,
     };
   }
@@ -529,10 +531,10 @@ export class Media extends Component {
     if (!operation?.active()) return null;
     try {
       const resp = await api.routes.setRoutePublic(operation.fullname, isPublic);
-      if (!operation.active()) return null;
+      if (!operation.owned()) return null;
       if (resp && resp.fullname === operation.fullname) {
         operation.dispatch(updateRoute(operation.fullname, { is_public: resp.is_public }));
-        if (resp.is_public !== isPublic) return { error: 'unable to update' };
+        if (operation.active() && resp.is_public !== isPublic) return { error: 'unable to update' };
       }
       return null;
     } catch (err) {
@@ -564,11 +566,13 @@ export class Media extends Component {
     if (!operation?.active()) return null;
     try {
       const resp = await api.routes.setRoutePreserved(operation.fullname, preserved);
-      if (!operation.active()) return null;
+      if (!operation.owned()) return null;
       if (resp?.success) {
-        this.setState({ routePreserved: preserved });
+        operation.dispatch(invalidateRoutes(operation.fullname));
+        if (operation.active()) this.setState({ routePreserved: preserved });
         return null;
       }
+      if (!operation.active()) return null;
       await this.fetchRoutePreserved();
       return { error: 'unable to update' };
     } catch (err) {

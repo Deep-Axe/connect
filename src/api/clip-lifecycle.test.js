@@ -26,6 +26,7 @@ describe('adversarial clip lifecycle', () => {
     const progress = vi.fn();
     const pending = clipDevice.getClipUrl(D, 'late.mp4', 1, progress, async () => true);
     clipDevice.releaseClip(D, 'late.mp4', 1, progress);
+    await flush();
     resolveLookup(null);
     await pending.catch(() => null);
     expect({ chunks: mocks.athena.mock.calls.length, cacheWrites: mocks.setItem.mock.calls.length })

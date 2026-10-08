@@ -12,7 +12,7 @@ export function createInitialState() {
 
     desiredPlaySpeed: 1,    // speed set by user
     isBufferingVideo: true, // if we're currently buffering for more data
-    offset: null,           // in miliseconds, relative to state.zoom.start
+    offset: null,           // milliseconds from the beginning of the drive
     startTime: Date.now(),  // millisecond timestamp in which play began
 
     profile: null,

@@ -9,12 +9,11 @@ import MyCommaAuth, { config as AuthConfig, storage as AuthStorage } from '@comm
 import { athena as Athena, billing as Billing, request as Request } from './api';
 import { api, initBackend } from './api/backend';
 
-import { VIEWS, isSafeReturnUrl, parseLocation, urlOfRouterLocation } from './routing/codec';
-import { bootstrapSession, endSession } from './actions/session';
+import { VIEWS, isSafeReturnUrl, parseLocation } from './routing/codec';
+import { bootstrapSession, logOutSession } from './actions/session';
 import { captureOperation } from './actions/owned';
 import { webrtcConnectionManager } from './utils/webrtc';
 import { fetchTurnCredentials } from './utils/turn';
-import { hardNavigate } from './utils/navigation';
 import defaultStore, { history as defaultHistory } from './store';
 
 import ErrorFallback from './components/ErrorFallback';
@@ -60,15 +59,7 @@ class App extends Component {
 
   async apiErrorResponseCallback(resp) {
     if (resp.status === 401) {
-      const logout = AuthStorage.logOut();
-      this.store().dispatch(endSession());
-      const epoch = this.store().getState().sessionEpoch;
-      await logout;
-      // Reload the complete destination as anonymous: a public drive must
-      // fetch its public data again after private data was cleared.
-      if (this.store().getState().sessionEpoch === epoch) {
-        hardNavigate(urlOfRouterLocation(this.history().location));
-      }
+      await this.store().dispatch(logOutSession());
     }
   }
 

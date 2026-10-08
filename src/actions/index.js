@@ -14,7 +14,7 @@ import {
 } from '../selectors';
 import { selectSubscriptionQuery } from '../resources/selectors';
 import { SUBSCRIPTION_FRESH_MS } from '../resources/freshness';
-import { runResourceRequest } from '../resources/requests';
+import { runResourceRequest, invalidateResourceRequest } from '../resources/requests';
 
 
 function normalizeRoute(payload) {
@@ -159,7 +159,11 @@ export function primeGetSubscription(dongleId, subscription, metadata = {}) {
 }
 
 export function invalidateSubscription(dongleId) {
-  return { type: Types.ACTION_INVALIDATE_SUBSCRIPTION, dongleId };
+  return (dispatch, getState, services = fallbackServices) => {
+    const epoch = getState().sessionEpoch;
+    invalidateResourceRequest(services, epoch, `subscription|${dongleId}`);
+    dispatch({ type: Types.ACTION_INVALIDATE_SUBSCRIPTION, dongleId, epoch });
+  };
 }
 
 function loadSubscription(dongleId, subscribed, force) {
@@ -168,12 +172,12 @@ function loadSubscription(dongleId, subscribed, force) {
     const field = subscribed ? 'subscription' : 'subscribeInfo';
     if (!force && query?.fetchedAt > 0 && Date.now() - query.fetchedAt < SUBSCRIPTION_FRESH_MS
       && query.kind === field) return Promise.resolve(query[field]);
-    return runResourceRequest(services, getState, `subscription|${dongleId}`,
+    return runResourceRequest(services, getState, `subscription|${dongleId}|${field}`,
       () => subscribed ? Billing.getSubscription(dongleId) : Billing.getSubscribeInfo(dongleId),
       (value, { epoch, requestId }) => dispatch({
         type: subscribed ? Types.ACTION_PRIME_SUBSCRIPTION : Types.ACTION_PRIME_SUBSCRIBE_INFO,
         dongleId, [field]: value, epoch, requestId, kind: field, fetchedAt: Date.now(),
-      }), force);
+      }), force, `subscription|${dongleId}`);
   };
 }
 
@@ -355,10 +359,26 @@ export function analyticsEvent(name, parameters) {
 }
 
 export function updateRoute(fullname, route) {
-  return {
-    type: Types.ACTION_UPDATE_ROUTE,
-    fullname,
-    route,
+  return (dispatch) => {
+    dispatch({ type: Types.ACTION_UPDATE_ROUTE, fullname, route });
+    dispatch(invalidateRoutes(fullname));
+  };
+}
+
+// A mutation makes every list for this device and the drive's detail stale.
+// Drop matching in-flight query owners too: pre-mutation answers cannot mark
+// the invalidated query fresh again or overwrite the optimistic mutation.
+export function invalidateRoutes(fullname) {
+  return (dispatch, getState, services = fallbackServices) => {
+    const dongleId = fullname.split('|')[0];
+    for (const key of services.requests.routeLatest.keys()) {
+      const [kind, , device, log] = key.split('|');
+      if ((kind === 'list' && device === dongleId) || (kind === 'detail' && `${device}|${log}` === fullname)) {
+        services.requests.routeLatest.delete(key);
+        services.requests.routeQueries.delete(key);
+      }
+    }
+    dispatch({ type: Types.ACTION_INVALIDATE_ROUTES, fullname, dongleId, epoch: getState().sessionEpoch });
   };
 }
 

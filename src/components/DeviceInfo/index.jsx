@@ -7,7 +7,7 @@ import dayjs from 'dayjs';
 import { withStyles, Typography, CircularProgress, Popper, Tooltip } from '@material-ui/core';
 
 import { athena as Athena } from '../../api';
-import { deviceSupportsClips } from '../../api/clips';
+import { getClipService } from '../../actions/clips';
 import { analyticsEvent, fetchDeviceNotCar } from '../../actions';
 import { MODALS, modalOf } from '../../routing/codec';
 import { openModal, toPrime, toStream } from '../../routing/navigate';
@@ -208,9 +208,10 @@ class DeviceInfo extends Component {
 
   async checkClipsSupport() {
     const { device, dongleId } = this.props;
+    const service = this.props.dispatch(getClipService());
     try {
-      const clipsSupported = await deviceSupportsClips(device);
-      if (this.mounted && dongleId === this.props.dongleId) this.setState({ clipsSupported });
+      const clipsSupported = await service.deviceSupportsClips(device);
+      if (this.mounted && service.isActive() && dongleId === this.props.dongleId && device?.openpilot_version === this.props.device?.openpilot_version) this.setState({ clipsSupported });
     } catch (error) {
       // The button stays hidden when Athena is unavailable or too old.
     }

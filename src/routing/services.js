@@ -58,7 +58,6 @@ export function createRoutingServices() {
     session: { promise: null },
     requests: {
       routeQueries: new Map(), routeLatest: new Map(), routeSeq: 0, // route list/detail requests in flight, by query key
-      events: new Map(), coords: new Map(), driveCoords: new Map(),
     },
     commands: { pairTokens: new Set() },
     uploads: { targets: new Map() },

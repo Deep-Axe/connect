@@ -1,4 +1,5 @@
 import * as Types from '../actions/types';
+import { invalidateRouteQueries } from './invalidateRoutes';
 
 function withQueries(state, name, key, query) {
   return { ...state, queries: { ...state.queries, [name]: { ...state.queries?.[name], [key]: query } } };
@@ -11,6 +12,8 @@ function mergeFiles(state, files) {
 // Returns null for actions owned by the navigation/device/route reducer.
 export function reduceResources(state, action) {
   switch (action.type) {
+    case Types.ACTION_INVALIDATE_ROUTES:
+      return invalidateRouteQueries(state, action.fullname, action.dongleId);
     case Types.ACTION_PRIME_SUBSCRIPTION:
     case Types.ACTION_PRIME_SUBSCRIBE_INFO: {
       const current = state.queries?.subscriptions?.[action.dongleId];
@@ -38,7 +41,7 @@ export function reduceResources(state, action) {
       const next = { ...state, entities: { ...state.entities, files } };
       return withQueries(next, 'files', action.fullname, {
         status: 'loaded', fetchedAt: action.fetchedAt, expiresAt: action.expiresAt,
-        fileNames: Object.keys(action.urls), requestId: action.requestId,
+        fileNames: Object.keys(action.urls), requestId: action.requestId, metadataVersion: action.metadataVersion,
       });
     }
     case Types.ACTION_INVALIDATE_FILES: {

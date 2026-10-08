@@ -1,17 +1,11 @@
 import React, { useCallback, useMemo } from 'react';
 import dayjs from 'dayjs';
 
-import MyCommaAuth from '@commaai/my-comma-auth';
+import { connect } from 'react-redux';
+import { logOutSession } from '../../actions/session';
 
 import { USERADMIN_URL_ROOT } from '../../api';
 import { filterRegularClick } from '../../utils';
-
-const logOut = async () => {
-  await MyCommaAuth.logOut();
-  if (window.location) {
-    window.location = window.location.origin;
-  }
-};
 
 const Version = () => {
   const sha = import.meta.env.VITE_APP_GIT_SHA;
@@ -34,13 +28,13 @@ const Version = () => {
   return <span className="text-xs text-[#ffffff66]">{content}</span>
 };
 
-const AccountMenu = ({ profile, open, onClose, onReferrals }) => {
+export const AccountMenu = ({ dispatch, profile, open, onClose, onReferrals }) => {
   const version = useMemo(() => <Version />, []);
 
   const onLogOut = useCallback(() => {
     onClose();
-    logOut();
-  }, [onClose]);
+    dispatch(logOutSession({ returnTo: '/' }));
+  }, [dispatch, onClose]);
 
   if (!open) {
     return null;
@@ -86,4 +80,4 @@ const AccountMenu = ({ profile, open, onClose, onReferrals }) => {
   );
 };
 
-export default AccountMenu;
+export default connect()(AccountMenu);

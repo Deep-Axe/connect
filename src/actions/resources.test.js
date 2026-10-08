@@ -41,7 +41,45 @@ it('HTTP asset failure remains retryable rather than committing empty loaded dat
 it('thrown asset failures settle and leave map retryable',async()=>{
  const h=harness();const fetch=vi.fn().mockRejectedValueOnce(new Error('temporary')).mockResolvedValueOnce({ok:true,json:async()=>[]});vi.stubGlobal('fetch',fetch);
  await h.dispatch(fetchEvents(route));await h.dispatch(fetchEvents(route));
- expect(fetch).toHaveBeenCalledTimes(2);expect(h.services.requests.events.size).toBe(0);
+ expect(fetch).toHaveBeenCalledTimes(2);expect(h.services.resources.pending.size).toBe(0);
+});
+it('inactive upload completion invalidates files and every affected route query',async()=>{
+ const h=harness(); const state=h.getState();
+ const filename=`${route.fullname}--0/qcameras`;
+ h.set({...state,dongleId:'bbbbbbbbbbbbbbbb',
+  uploadQueues:{[A]:{uploading:{done:{fileName:filename}}}},
+  queries:{...state.queries,files:{[route.fullname]:{status:'loaded',expiresAt:1e12}},
+   routeLists:{list:{dongleId:A,fetchedAt:100,fullnames:[route.fullname]}},routeDetails:{[route.fullname]:{status:'loaded',fetchedAt:100}}}});
+ mocks.rpc.mockResolvedValue({result:[]}); await h.dispatch(fetchUploadQueue(A));
+ expect(h.getState().queries.files[route.fullname].expiresAt).toBe(0);
+ expect(h.getState().queries.routeLists.list.fetchedAt).toBe(0);
+ expect(h.getState().queries.routeDetails[route.fullname].fetchedAt).toBe(0);
+});
+it('logout blocks late asset persistence and a new session can retry the same version',async()=>{
+ const h=harness(); const replies=[]; const stored=[];
+ h.services.assetCache={read:async()=>null,clear:async()=>{stored.length=0;},
+  write:async(_store,_key,_expiry,data,_version,isCurrent)=>{if(isCurrent())stored.push(data);}};
+ vi.stubGlobal('fetch',vi.fn(()=>new Promise(resolve=>replies.push(resolve))));
+ const old=h.dispatch(fetchEvents(route)); await tick();
+ h.dispatch(endSession());
+ const initial=h.getState();h.set({...initial,entities:{...initial.entities,routes:{[route.fullname]:route}}});
+ const fresh=h.dispatch(fetchEvents(route));await tick();
+ const event=n=>[{type:'user_bookmark',route_offset_millis:n,data:{}}];
+ replies[0]({ok:true,json:async()=>event(10)});await old;
+ expect(stored).toHaveLength(0);
+ replies[1]({ok:true,json:async()=>event(20)});await fresh;
+ expect(stored).toHaveLength(1);
+ expect(h.getState().entities.routes[route.fullname].events[0].route_offset_millis).toBe(20);
+});
+it('a cached empty asset is reused only for its matching immutable version',async()=>{
+ const h=harness();const read=vi.fn(async()=>[]);
+ h.services.assetCache={read,write:vi.fn(),clear:async()=>{}};
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ await h.dispatch(fetchEvents(route));await h.dispatch(fetchEvents(route));
+ expect(read).toHaveBeenCalledTimes(1);expect(fetch).not.toHaveBeenCalled();
+ const newer={...route,maxqlog:1};h.set({...h.getState(),entities:{...h.getState().entities,routes:{[route.fullname]:newer}}});
+ await h.dispatch(fetchEvents(newer));expect(read).toHaveBeenCalledTimes(2);
+ expect(h.getState().entities.routes[route.fullname].eventsVersion).toBe(1);
 });
 it('completed empty upload queues can be requested again',async()=>{
  const h=harness();mocks.rpc.mockResolvedValue({result:[]});

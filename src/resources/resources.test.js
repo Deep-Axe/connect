@@ -32,7 +32,7 @@ function harness() {
     state = { ...state, dongleId, nav: { ...state.nav, location: { base: { view: 'drive', dongleId, drive: { logId: LOG } } } } };
   };
   select(A);
-  return { dispatch, getState: () => state, services, select };
+  return { dispatch, getState: () => state, setState: value => { state = value; }, services, select };
 }
 
 beforeEach(() => {
@@ -117,6 +117,50 @@ describe('keyed subscription and file queries', () => {
     await pending;
     expect(mocks.files).not.toHaveBeenCalled();
     expect(h.getState().queries.files).toEqual({});
+  });
+
+  it('does not deduplicate subscription and subscribe-info endpoints for the same device', async () => {
+    let subscriptionAnswer;
+    mocks.subscription.mockImplementation(() => new Promise(resolve => { subscriptionAnswer = resolve; }));
+    mocks.info.mockResolvedValue({ eligible: true });
+    const h = harness();
+    const old = h.dispatch(primeFetchSubscription(A)); await Promise.resolve();
+    const state = h.getState();
+    h.setState({ ...state, entities: { ...state.entities, devices: { ...state.entities.devices, [A]: { ...state.entities.devices[A], prime: false } } } });
+    await h.dispatch(primeFetchSubscription(A));
+    subscriptionAnswer({ plan: 'obsolete' }); await old;
+    expect(mocks.info).toHaveBeenCalledTimes(1);
+    expect(h.getState().queries.subscriptions[A].subscribeInfo).toEqual({ eligible: true });
+    expect(selectSubscription(h.getState(), A)).toBeNull();
+  });
+
+  it('invalidation retires the old file request before a non-forced refresh', async () => {
+    const answers = []; mocks.files.mockImplementation(() => new Promise(resolve => answers.push(resolve)));
+    const h = harness();
+    const old = h.dispatch(fetchFiles(FULL)); await Promise.resolve();
+    h.dispatch(invalidateFiles(FULL));
+    const fresh = h.dispatch(fetchFiles(FULL)); await Promise.resolve();
+    expect(mocks.files).toHaveBeenCalledTimes(2);
+    answers[0]({ qcameras: [signed(A, NOW + 3_600_000, 'old')] }); await old;
+    expect(selectFiles(h.getState())).toBeNull();
+    answers[1]({ qcameras: [signed(A, NOW + 3_600_000, 'fresh')] }); await fresh;
+    expect(selectFiles(h.getState())[`${FULL}--0/qcameras`].url).toContain('fresh');
+  });
+
+  it('new metadata versions hide old file grants and supersede in-flight inventories', async () => {
+    const answers = []; mocks.files.mockImplementation(() => new Promise(resolve => answers.push(resolve)));
+    const h = harness(); const initial = h.getState();
+    h.setState({ ...initial, entities: { ...initial.entities, routes: { [FULL]: { fullname: FULL, maxqlog: 0 } } } });
+    const old = h.dispatch(fetchFiles(FULL)); await Promise.resolve();
+    const state = h.getState();
+    h.setState({ ...state, entities: { ...state.entities, routes: { [FULL]: { fullname: FULL, maxqlog: 1 } } } });
+    const fresh = h.dispatch(fetchFiles(FULL)); await Promise.resolve();
+    answers[0]({ qcameras: [signed(A, NOW + 3_600_000, 'old')] }); await old;
+    expect(selectFiles(h.getState())).toBeNull();
+    answers[1]({ qcameras: [signed(A, NOW + 3_600_000, 'fresh')] }); await fresh;
+    const newState = h.getState();
+    h.setState({ ...newState, entities: { ...newState.entities, routes: { [FULL]: { fullname: FULL, maxqlog: 2 } } } });
+    expect(selectFiles(h.getState())[`${FULL}--0/qcameras`].url).toBeUndefined();
   });
 });
 

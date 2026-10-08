@@ -8,7 +8,7 @@ vi.mock('../api', () => ({ USERADMIN_URL_ROOT: '', billing: { getSubscribeInfo: 
 vi.mock('../api/clips', () => ({deviceSupportsClips: vi.fn()}));
 vi.mock('../api/backend', () => ({ api: { routes: {setRoutePublic:mocks.public,setRoutePreserved:mocks.preserve,getPreservedRoutes:mocks.preserved}, devices: { pilotPair: mocks.pair, listDevices: mocks.list } } }));
 vi.mock('localforage', () => ({ default: { getItem: mocks.token, removeItem: mocks.remove } }));
-vi.mock('../actions', () => ({ analyticsEvent: () => ({type:'analytics'}), updateDevices: devices => ({type:'devices',devices}), refreshDevices: () => async dispatch => dispatch({type:'devices',devices:await mocks.list()}), primeGetSubscription: () => ({type:'subscription'}), updateRoute: mocks.routeUpdate }));
+vi.mock('../actions', () => ({ analyticsEvent: () => ({type:'analytics'}), updateDevices: devices => ({type:'devices',devices}), refreshDevices: () => async dispatch => dispatch({type:'devices',devices:await mocks.list()}), primeGetSubscription: () => ({type:'subscription'}), invalidateRoutes: fullname => ({type:'invalidateRoutes',fullname}), updateRoute: mocks.routeUpdate }));
 vi.mock('../actions/files', () => ({ FILE_NAMES: { qcameras: ['qcamera.ts'] }, fetchUploadUrls: mocks.urls, doUpload: mocks.upload, updateFiles: files => ({type:'files',files}), setRouteViewed: vi.fn(), fetchFiles: vi.fn(), fetchAthenaQueue: vi.fn() }));
 vi.mock('../actions/cached', () => ({ fetchEvents: vi.fn() }));
 vi.mock('./DriveMap', () => ({default:()=>null}));
@@ -52,6 +52,7 @@ it('CLOSURE old preserve response cannot update a different current route',async
  const pending=media.onPreserveToggle({target:{checked:true}});
  media.props={...media.props,currentRoute:{...route,fullname:`${A}|2026-08-06--13-00-00`}};
  reply({success:true});await pending;expect(media.setState).not.toHaveBeenCalled();
+ expect(h.actions).toContainEqual(expect.objectContaining({type:'invalidateRoutes',fullname:route.fullname}));
 });
 it('CLOSURE preserve refresh fallback cannot start new work after logout',async()=>{
  const h=harness();let reply;mocks.preserve.mockImplementation(()=>new Promise(r=>reply=r));mocks.preserved.mockResolvedValue([]);
@@ -84,4 +85,15 @@ it('a preserve inventory response cannot write after unmount',async()=>{
  const h=harness();let reply;mocks.preserved.mockImplementation(()=>new Promise(r=>reply=r));
  const media=component(Media,{dispatch:h.dispatch,dongleId:A,currentRoute:route});const pending=media.fetchRoutePreserved();
  media.mounted=false;reply([{fullname:route.fullname}]);await pending;expect(media.setState).not.toHaveBeenCalled();
+});
+
+
+it('a public mutation updates its retained route after the view changes', async () => {
+ const h=harness();let reply;mocks.public.mockImplementation(()=>new Promise(r=>reply=r));
+ const media=component(Media,{dispatch:h.dispatch,dongleId:A,currentRoute:route});
+ const pending=media.onPublicToggle({target:{checked:true}});
+ media.props={...media.props,currentRoute:{...route,fullname:`${A}|2026-08-06--13-00-00`}};
+ reply({fullname:route.fullname,is_public:true});await pending;
+ expect(mocks.routeUpdate).toHaveBeenCalledWith(route.fullname,{is_public:true});
+ expect(media.setState).not.toHaveBeenCalled();
 });

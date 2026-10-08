@@ -293,15 +293,29 @@ class ClipMenu extends Component {
   // when nobody else wants them)
   releaseDownload() {
     if (!this.download) return;
-    const { dongleId, filename, requestedAt, onProgress } = this.download;
-    clipDevice.releaseClip(dongleId, filename, requestedAt, onProgress);
+    const { dongleId, filename, requestedAt, onProgress, service } = this.download;
+    service.releaseClip(dongleId, filename, requestedAt, onProgress);
     this.download = null;
+  }
+
+  clipService() {
+    return this.props.clipDevice ?? clipDevice;
+  }
+
+  ownsClipTask(service, dongleId) {
+    return this.mounted && service === this.clipService() && dongleId === this.props.dongleId
+      && (service.isActive?.() ?? true);
+  }
+
+  revokePreviewUrl() {
+    if (this.state.previewUrl) (this.previewService ?? this.clipService()).revokeClipUrl(this.state.previewUrl);
+    this.previewService = null;
   }
 
   showPreviewProblem(previewProblem) {
     this.releaseDownload();
     this.previewRequest += 1;
-    if (this.state.previewUrl) URL.revokeObjectURL(this.state.previewUrl);
+    this.revokePreviewUrl();
     this.setState({ viewingClip: null, previewingClip: null, previewUrl: null, previewProgress: 0, previewProblem });
   }
 
@@ -313,8 +327,17 @@ class ClipMenu extends Component {
     const opened = this.props.open && !prevProps.open;
     const routeChanged = this.props.route?.fullname !== prevProps.route?.fullname;
     const deviceChanged = this.props.dongleId !== prevProps.dongleId;
+    const serviceChanged = this.props.clipDevice !== prevProps.clipDevice;
     const reconnected = this.props.deviceOnline && !prevProps.deviceOnline;
-    if ((opened || routeChanged || deviceChanged || reconnected) && this.props.open) this.loadClips();
+    if (serviceChanged) {
+      this.releaseDownload();
+      this.revokePreviewUrl();
+      this.loadedPreviewKey = null;
+      this.metadataLoaded = false;
+      this.previewRequest += 1;
+      this.setState({ previewUrl: null, viewingClip: null, previewingClip: null });
+    }
+    if ((opened || routeChanged || deviceChanged || reconnected || serviceChanged) && this.props.open) this.loadClips();
     if (!this.props.deviceOnline && prevProps.deviceOnline) {
       this.stopPolling();
       this.setState({ loading: false });
@@ -330,7 +353,7 @@ class ClipMenu extends Component {
     this.previewRequest += 1;
     this.releaseDownload();
     this.stopPolling();
-    if (this.state.previewUrl) URL.revokeObjectURL(this.state.previewUrl);
+    this.revokePreviewUrl();
   }
 
   stopPolling() {
@@ -341,45 +364,53 @@ class ClipMenu extends Component {
   async loadClips(showLoading = true) {
     const routeName = deviceRouteName(this.props.route);
     const { dongleId } = this.props;
+    const service = this.clipService();
+    this.metadataRequest = (this.metadataRequest ?? 0) + 1;
+    const request = this.metadataRequest;
+    const isCurrent = () => this.ownsClipTask(service, dongleId) && request === this.metadataRequest
+      && routeName === deviceRouteName(this.props.route);
     if (!this.props.deviceOnline) {
       this.setState({ clips: [], cameraRanges: null, loading: false, error: null });
       return;
     }
     if (showLoading) this.setState({ loading: true, error: null });
     try {
-      const state = await clipDevice.getClipState(dongleId, routeName ? { route: this.props.route.fullname } : {});
-      if (!this.mounted || routeName !== deviceRouteName(this.props.route) || dongleId !== this.props.dongleId) return;
+      const state = await service.getClipState(dongleId, routeName ? { route: this.props.route.fullname } : {});
+      if (!isCurrent()) return;
       const { clips } = state;
       const downloadedClips = new Set((await Promise.all(clips
         .filter(clip => clip.status === 'ready')
-        .map(async clip => ([clip.filename, await clipDevice.hasClipBlob(dongleId, clip.filename, clip.requested_at)]))))
+        .map(async clip => ([clip.filename, await service.hasClipBlob(dongleId, clip.filename, clip.requested_at)]))))
         .filter(([, downloaded]) => downloaded)
         .map(([filename]) => filename));
-      if (!this.mounted || routeName !== deviceRouteName(this.props.route) || dongleId !== this.props.dongleId) return;
+      if (!isCurrent()) return;
       const cameraRanges = routeName ? state.cameras || {} : null;
       this.metadataLoaded = true;
       this.setState({ clips, downloadedClips, cameraRanges, loading: false }, () => {
+        if (!isCurrent()) return;
         const autoClip = clips.find(clip => clip.filename === this.state.autoDownloadFilename && clip.status === 'ready');
         if (this.props.open && autoClip) this.setState({ autoDownloadFilename: null }, () => this.openViewer(autoClip));
       });
       this.stopPolling();
       if (this.props.open && clips.some(clip => ACTIVE_STATUSES.has(clip.status))) {
-        this.poll = setTimeout(() => this.loadClips(false), POLL_INTERVAL);
+        this.poll = setTimeout(() => { if (isCurrent()) this.loadClips(false); }, POLL_INTERVAL);
       }
     } catch (err) {
-      if (this.mounted) this.setState({ loading: false, error: err.message || 'Could not reach the device' });
+      if (isCurrent()) this.setState({ loading: false, error: err.message || 'Could not reach the device' });
     }
   }
 
   async createClip() {
     const { dongleId, route, zoom } = this.props;
     const { camera, bitrate, speedup, filename } = this.state;
+    const service = this.clipService();
+    const isCurrent = () => this.ownsClipTask(service, dongleId) && route?.fullname === this.props.route?.fullname;
     if (!route || !zoom || !this.props.deviceOnline || !validFilename(filename)) return;
     const generatedFilename = defaultFilename(dongleId, route, camera, zoom.start / 1000, zoom.end / 1000, speedup);
     const outputFilename = `${normalizeFilename(filename) || generatedFilename}.mp4`;
     this.setState({ creating: true, autoDownloadFilename: outputFilename, error: null });
     try {
-      await clipDevice.createClip(dongleId, {
+      await service.createClip(dongleId, {
         route: route.fullname,
         source_start_time: zoom.start / 1000,
         source_end_time: zoom.end / 1000,
@@ -390,11 +421,11 @@ class ClipMenu extends Component {
           filename: outputFilename,
         },
       });
-      if (!this.mounted) return;
+      if (!isCurrent()) return;
       this.setState({ creating: false });
       await this.loadClips(false);
     } catch (err) {
-      if (this.mounted) this.setState({ creating: false, autoDownloadFilename: null, error: err.message || 'Could not create clip' });
+      if (isCurrent()) this.setState({ creating: false, autoDownloadFilename: null, error: err.message || 'Could not create clip' });
     }
   }
 
@@ -408,18 +439,21 @@ class ClipMenu extends Component {
   }
 
   async removeClip(clip) {
+    const service = this.clipService();
+    const { dongleId } = this.props;
     if (!this.props.deviceOnline) return false;
     if (clip.filename === this.state.previewingClip) {
       this.previewRequest += 1;
       this.setState({ previewingClip: null, previewProgress: 0 });
     }
     try {
-      await clipDevice.deleteClip(this.props.dongleId, { filename: clip.filename });
+      await service.deleteClip(dongleId, { filename: clip.filename });
+      if (!this.ownsClipTask(service, dongleId)) return false;
       if (clip.filename === this.state.autoDownloadFilename) this.setState({ autoDownloadFilename: null });
-      if (this.mounted) await this.loadClips(false);
+      await this.loadClips(false);
       return true;
     } catch (err) {
-      if (this.mounted) this.setState({ error: err.message || 'Could not remove clip' });
+      if (this.ownsClipTask(service, dongleId)) this.setState({ error: err.message || 'Could not remove clip' });
       return false;
     }
   }
@@ -427,9 +461,11 @@ class ClipMenu extends Component {
   async confirmDelete() {
     const { deletingClip } = this.state;
     if (!deletingClip || this.state.deleting) return;
+    const service = this.clipService();
+    const { dongleId } = this.props;
     this.setState({ deleting: true });
     const deleted = await this.removeClip(deletingClip);
-    if (this.mounted) this.setState({ deleteDialogOpen: !deleted, deleting: false });
+    if (this.ownsClipTask(service, dongleId)) this.setState({ deleteDialogOpen: !deleted, deleting: false });
   }
 
   // a user asked to watch a clip: put its exact version in the URL, or, when
@@ -449,29 +485,33 @@ class ClipMenu extends Component {
       this.showPreviewProblem('Device offline');
       return;
     }
-    if (this.state.previewUrl) URL.revokeObjectURL(this.state.previewUrl);
+    this.revokePreviewUrl();
     this.previewRequest += 1;
     const request = this.previewRequest;
     const { dongleId } = this.props;
+    const service = this.clipService();
     const version = clipVersion(clip);
     this.setState({ previewingClip: clip.filename, previewUrl: null, previewProgress: 0, previewProblem: null, error: null });
     const isCurrentVersion = async () => {
-      const { clips } = await clipDevice.getClipState(dongleId, {});
+      if (!this.ownsClipTask(service, dongleId) || request !== this.previewRequest) return false;
+      const { clips } = await service.getClipState(dongleId, {});
+      if (!this.ownsClipTask(service, dongleId) || request !== this.previewRequest) return false;
       return clips.some((c) => c.filename === clip.filename && clipVersion(c) === version && c.status === 'ready');
     };
     this.releaseDownload();
     const onProgress = (loaded, total) => {
-      if (this.mounted && request === this.previewRequest) this.setState({ previewProgress: loaded / total });
+      if (this.ownsClipTask(service, dongleId) && request === this.previewRequest) this.setState({ previewProgress: loaded / total });
     };
-    this.download = { dongleId, filename: clip.filename, requestedAt: clip.requested_at, onProgress };
+    this.download = { dongleId, filename: clip.filename, requestedAt: clip.requested_at, onProgress, service };
     try {
-      const previewUrl = await clipDevice.getClipUrl(dongleId, clip.filename, clip.requested_at, onProgress, isCurrentVersion);
+      const previewUrl = await service.getClipUrl(dongleId, clip.filename, clip.requested_at, onProgress, isCurrentVersion);
       if (this.download?.onProgress === onProgress) this.download = null; // finished: nothing to release
-      if (!this.mounted || request !== this.previewRequest || this.state.previewingClip !== clip.filename) {
-        URL.revokeObjectURL(previewUrl);
+      if (!this.ownsClipTask(service, dongleId) || request !== this.previewRequest || this.state.previewingClip !== clip.filename) {
+        service.revokeClipUrl(previewUrl);
         return;
       }
       if (this.props.open) {
+        this.previewService = service;
         this.setState(({ downloadedClips }) => ({
           viewingClip: clip,
           previewingClip: null,
@@ -480,11 +520,11 @@ class ClipMenu extends Component {
           downloadedClips: new Set(downloadedClips).add(clip.filename),
         }));
       } else {
-        URL.revokeObjectURL(previewUrl);
+        service.revokeClipUrl(previewUrl);
         this.setState({ previewingClip: null, previewProgress: 0 });
       }
     } catch (err) {
-      if (this.mounted && request === this.previewRequest) {
+      if (this.ownsClipTask(service, dongleId) && request === this.previewRequest) {
         if (err instanceof ClipChangedError) {
           this.showPreviewProblem('This clip changed on the device since the link was made.');
         } else {
@@ -498,7 +538,7 @@ class ClipMenu extends Component {
   closeViewer() {
     this.releaseDownload();
     this.previewRequest += 1;
-    if (this.state.previewUrl) URL.revokeObjectURL(this.state.previewUrl);
+    this.revokePreviewUrl();
     this.setState({ viewingClip: null, previewingClip: null, previewUrl: null, previewProgress: 0, previewProblem: null });
   }
 

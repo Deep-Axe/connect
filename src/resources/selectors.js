@@ -24,6 +24,7 @@ const filesForRoute = memoize((files, fullname, fresh, known) => {
 // Expired signed URLs never remain actionable while the inventory refreshes.
 export function selectFiles(state, fullname = selectedFullname(state), now = Date.now()) {
   const query = selectFilesQuery(state, fullname);
-  const fresh = Boolean(query && query.status === 'loaded' && query.expiresAt > now);
+  const fresh = Boolean(query && query.status === 'loaded' && query.expiresAt > now
+    && query.metadataVersion === state.entities?.routes?.[fullname]?.maxqlog);
   return filesForRoute(state.entities?.files, fullname, fresh, Boolean(query));
 }

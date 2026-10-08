@@ -67,7 +67,9 @@ vi.mock('../utils/webrtc', () => {
 vi.mock('../utils/navigation', () => ({ hardNavigate: vi.fn() }));
 vi.mock('localforage', () => {
   const items = new Map();
-  return { default: { items, getItem: async (k) => items.get(k) ?? null, setItem: async (k, v) => { items.set(k, v); return v; }, removeItem: async (k) => { items.delete(k); } } };
+  const clips = new Map();
+  const clipStorage = { getItem: async key => clips.get(key), setItem: async (key, value) => clips.set(key, value), clear: async () => clips.clear(), keys: async () => [...clips.keys()], removeItem: async key => clips.delete(key) };
+  return { default: { createInstance: () => clipStorage, items, getItem: async (k) => items.get(k) ?? null, setItem: async (k, v) => { items.set(k, v); return v; }, removeItem: async (k) => { items.delete(k); } } };
 });
 
 const A = 'aaaaaaaaaaaaaaaa';

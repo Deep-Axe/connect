@@ -1,10 +1,10 @@
 import { reduceResources } from '../resources/reducer';
+import { pruneRouteLists } from '../resources/pruneRoutes';
 import * as Types from '../actions/types';
 import { emptyDevice } from '../utils/emptyDevice';
 import { getDefaultFilter } from '../utils/filter';
 import { offsetAt } from '../timeline/offset';
 import { LIMIT_INCREMENT, selectCurrentRoute } from '../selectors';
-
 
 // ---- devices: stored once, by id (entities.devices), with the account's
 // sorted list as ids (entities.deviceOrder). The selected device is derived
@@ -64,7 +64,7 @@ function applySelectedDevice(state, dongleId, at) {
     lists: state.lists[dongleId]
       ? state.lists
       : { ...state.lists, [dongleId]: { filter: getDefaultFilter(at), limit: LIMIT_INCREMENT } },
-    // interim per-device reset, until subscriptions and files are keyed
+    // Stripe result feedback belongs to the selected device.
     primeStripeResult: null,
   };
 }
@@ -190,8 +190,6 @@ function clearPrivateState(state) {
   };
 }
 
-// The selected route once its metadata is known: zoom and loop from the
-// URL's selection, intersected with the route.
 // The selected drive's route just became known (from a list or a detail):
 // take zoom and loop from the URL's selection, intersected with the route.
 function adoptCurrentRoute(state, previousRoute, at) {
@@ -277,7 +275,7 @@ export default function reducer(_state, action) {
       if (staleRouteVersion(state, action)) break;
       const firstFrame = action.events.find((ev) => ev.type === 'event' && ev.data.event_type === 'first_road_camera_frame');
       const videoStartOffset = firstFrame ? firstFrame.route_offset_millis : null;
-      state = updateRouteEntity(state, action.fullname, (route) => ({ ...route, events: action.events, videoStartOffset }));
+      state = updateRouteEntity(state, action.fullname, (route) => ({ ...route, events: action.events, eventsVersion: action.maxqlog, videoStartOffset }));
       break;
     }
     case Types.ACTION_UPDATE_ROUTE_LOCATION:
@@ -335,6 +333,7 @@ export default function reducer(_state, action) {
         },
       };
       state = adoptCurrentRoute(state, previousRoute, action.fetchedAt);
+      state = pruneRouteLists(state);
       break;
     }
     case Types.ACTION_ROUTE_DETAIL_LOADED: {

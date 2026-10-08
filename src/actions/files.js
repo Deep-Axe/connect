@@ -2,13 +2,13 @@ import * as Sentry from '@sentry/react';
 import { athena as Athena } from '../api';
 import { api } from '../api/backend';
 
-import { updateDeviceOnline, fetchDeviceNetworkStatus } from '.';
+import { updateDeviceOnline, fetchDeviceNetworkStatus, invalidateRoutes } from '.';
 import * as Types from './types';
 import { deviceOnCellular, getDeviceFromState, deviceVersionAtLeast, asyncSleep } from '../utils';
 import { ownedDispatch } from './owned';
 import { selectDevice, selectDeviceById } from '../selectors';
 import { fallbackServices } from '../routing/services';
-import { runResourceRequest } from '../resources/requests';
+import { runResourceRequest, invalidateResourceRequest } from '../resources/requests';
 import { selectFilesQuery } from '../resources/selectors';
 import { fileInventoryExpiry } from '../resources/freshness';
 
@@ -107,18 +107,24 @@ export function updateFiles(files, dongleId = null) {
 }
 
 export function invalidateFiles(fullname) {
-  return { type: Types.ACTION_INVALIDATE_FILES, fullname };
+  return (dispatch, getState, services = fallbackServices) => {
+    const epoch = getState().sessionEpoch;
+    invalidateResourceRequest(services, epoch, `files|${fullname}`);
+    dispatch({ type: Types.ACTION_INVALIDATE_FILES, fullname, epoch });
+  };
 }
 
 export function fetchFiles(routeName, nocache = false) {
   return (dispatch, getState, services = fallbackServices) => {
     const query = selectFilesQuery(getState(), routeName);
-    if (!nocache && query?.status === 'loaded' && query.expiresAt > Date.now()) {
+    const metadataVersion = getState().entities?.routes?.[routeName]?.maxqlog;
+    if (!nocache && query?.status === 'loaded' && query.expiresAt > Date.now() && query.metadataVersion === metadataVersion) {
       return Promise.resolve(query);
     }
-    return runResourceRequest(services, getState, `files|${routeName}`,
+    return runResourceRequest(services, getState, `files|${routeName}|${metadataVersion ?? 'unknown'}`,
       () => api.routes.getRouteFiles(routeName, nocache),
       (files, { epoch, requestId }) => {
+        if (getState().entities?.routes?.[routeName]?.maxqlog !== metadataVersion) return;
         if (!files || typeof files !== 'object') throw new Error('Missing route file inventory');
         const urlName = routeName.replace('|', '/');
         const urls = Object.keys(FILE_NAMES)
@@ -134,9 +140,9 @@ export function fetchFiles(routeName, nocache = false) {
         const fetchedAt = Date.now();
         dispatch({
           type: Types.ACTION_FILES_URLS, dongleId: routeName.split('|')[0], fullname: routeName,
-          urls, epoch, requestId, fetchedAt, expiresAt: fileInventoryExpiry(files, fetchedAt),
+          urls, epoch, requestId, fetchedAt, expiresAt: fileInventoryExpiry(files, fetchedAt), metadataVersion,
         });
-      }, nocache).catch((err) => {
+      }, nocache, `files|${routeName}`).catch((err) => {
       console.error(err);
       Sentry.captureException(err, { fingerprint: 'action_files_fetch_files' });
       return null;
@@ -279,9 +285,13 @@ async function pollUploadQueueOnce(dongleId, dispatch, getState, target, stillWa
     delete prevFilesUploading[uploading.id];
   });
   // some item is done uploading
-  if (getState().dongleId === dongleId && Object.keys(prevFilesUploading).length) {
-    const routeName = Object.values(prevFilesUploading)[0].fileName.split('--').slice(0, 2).join('--');
-    dispatch(fetchFiles(routeName, true));
+  if (Object.keys(prevFilesUploading).length) {
+    const completedRoutes = new Set(Object.values(prevFilesUploading).map(upload => upload.fileName.split('--').slice(0, 2).join('--')));
+    for (const routeName of completedRoutes) {
+      dispatch(invalidateFiles(routeName));
+      dispatch(invalidateRoutes(routeName));
+      if (getState().dongleId === dongleId) dispatch(fetchFiles(routeName, true));
+    }
   }
   dispatch({
     type: Types.ACTION_FILES_UPLOADING,

@@ -10,6 +10,8 @@ import { clearPairToken } from '../routing/pairToken';
 import { fallbackServices } from '../routing/services';
 import { stopAllUploadQueuePolls } from './files';
 import { clearResourceRequests } from '../resources/requests';
+import { assetCacheFor } from '../resources/assetCache';
+import { clearClipService } from './clips';
 
 import { ACTION_SESSION_ENDED, ACTION_STARTUP_DATA } from './types';
 
@@ -66,12 +68,7 @@ export function bootstrapSession() {
         if (profile === SESSION_REJECTED) {
           // Invalidate private work immediately. The SDK's higher-level
           // logout redirects after storage yields, outside our epoch guard.
-          dispatch(endSession());
-          const endedEpoch = getState().sessionEpoch;
-          await AuthStorage.logOut();
-          if (getState().sessionEpoch === endedEpoch) {
-            hardNavigate(urlOfRouterLocation(getState().router?.location ?? window.location));
-          }
+          await dispatch(logOutSession());
           return { profile: null, devices: [] };
         }
         if (profile) {
@@ -92,6 +89,8 @@ export function bootstrapSession() {
 export function endSession() {
   return (dispatch, getState, services = fallbackServices) => {
     clearResourceRequests(services);
+    const clearAssets = assetCacheFor(services).clear();
+    const clearClips = clearClipService(services);
     services.session.promise = null;
     services.history.reset();
     services.navigation.generation += 1;
@@ -103,17 +102,29 @@ export function endSession() {
     billing.configure(null);
     services.requests.routeQueries.clear();
     services.requests.routeLatest.clear();
-    services.requests.events.clear();
-    services.requests.coords.clear();
-    services.requests.driveCoords.clear();
     services.commands.pairTokens.clear();
     services.commands.pairPromises?.clear();
-    clearPairToken(services).catch((error) => {
+    const clearPair = clearPairToken(services).catch((error) => {
       console.error('Could not clear the pairing token', error);
       Sentry.captureException(error, { fingerprint: 'session_clear_pair_token' });
     });
     stopAllUploadQueuePolls(services);
     Sentry.setUser(null);
     dispatch({ type: ACTION_SESSION_ENDED });
+    return Promise.all([clearAssets, clearClips, clearPair]);
+  };
+}
+
+
+// Navigation must wait for the physical cache clear as well as credentials.
+// Capturing the resulting epoch prevents an old logout redirecting a new login.
+export function logOutSession({ returnTo = null } = {}) {
+  return async (dispatch, getState) => {
+    const teardown = dispatch(endSession());
+    const epoch = getState().sessionEpoch;
+    await Promise.all([teardown, AuthStorage.logOut()]);
+    if (getState().sessionEpoch !== epoch) return false;
+    hardNavigate(returnTo ?? urlOfRouterLocation(getState().router?.location ?? window.location));
+    return true;
   };
 }

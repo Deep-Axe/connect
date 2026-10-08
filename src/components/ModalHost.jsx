@@ -1,4 +1,5 @@
 import { selectCurrentRoute, selectRoutes } from '../selectors';
+import { getClipService } from '../actions/clips';
 // Renders the task dialog named by the URL over whatever page is showing.
 // Lives in the explorer shell, so a dialog does not depend on the drawer or
 // any page being mounted, and the page underneath keeps its state.
@@ -59,6 +60,7 @@ const ModalHost = ({ dispatch, location, device, canManage, route, zoom, routes 
       return (
         <ClipMenu
           key={modal.dongleId}
+          clipDevice={dispatch(getClipService())}
           open
           dongleId={modal.dongleId}
           onClose={close}

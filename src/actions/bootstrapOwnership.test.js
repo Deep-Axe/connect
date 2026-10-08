@@ -32,3 +32,12 @@ it('a current rejected bootstrap clears private data before storage and reloads 
  expect(state.profile).toBeNull();expect(state.sessionEpoch).toBe(1);expect(mocks.navigate).not.toHaveBeenCalled();
  complete();await pending;expect(mocks.navigate).toHaveBeenCalledWith('/public?ext=1#keep');expect(mocks.logout).not.toHaveBeenCalled();
 });
+
+it('FINAL_REVIEW rejected bootstrap waits for persisted purge before reload',async()=>{
+ vi.spyOn(AuthStorage,'logOut').mockResolvedValue();let finish;
+ let state={...createInitialState(),router:{location:{pathname:'/public',search:'?kept=1',hash:'#anchor'}}};const services=createRoutingServices();
+ services.assetCache={clear:()=>new Promise(resolve=>finish=resolve)};
+ const dispatch=action=>typeof action==='function'?action(dispatch,()=>state,services):(state=reducer(state,action),action);
+ const pending=dispatch(bootstrapSession());await Promise.resolve();await Promise.resolve();await Promise.resolve();await Promise.resolve();
+ const redirected=mocks.navigate.mock.calls.length;finish();await pending;expect(redirected).toBe(0);
+});

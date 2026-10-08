@@ -3,6 +3,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { createMemoryHistory } from 'history';
 
 import App from './App';
+import { Provider } from 'react-redux';
+import AccountMenu from './components/AppHeader/AccountMenu';
 import MyCommaAuth, {storage as AuthStorage} from '@commaai/my-comma-auth';
 import { request as Request } from './api';
 import { endSession } from './actions/session';
@@ -582,5 +584,27 @@ test('delayed 401 logout cannot reload a successor session',async()=>{
  const store=createAppStore(history,createInitialState());const app=new App({store,history});let resolve;
  AuthStorage.logOut.mockImplementationOnce(()=>new Promise(r=>resolve=r));mocks.hardNavigate.mockClear();
  const pending=app.apiErrorResponseCallback({status:401});store.dispatch(endSession());resolve();await pending;
+ expect(mocks.hardNavigate).not.toHaveBeenCalled();
+});
+
+test('FINAL_REVIEW 401 recovery waits for persisted resource teardown before reload',async()=>{
+ const history=createMemoryHistory({initialEntries:[`/${FIRST}/${LOG}?kept=1#anchor`]});const store=createAppStore(history,createInitialState());
+ let finish;store.dispatch((_dispatch,_getState,services)=>{services.assetCache={clear:()=>new Promise(resolve=>finish=resolve)};});
+ const app=new App({store,history});AuthStorage.logOut.mockResolvedValueOnce();mocks.hardNavigate.mockClear();
+ const pending=app.apiErrorResponseCallback({status:401});await Promise.resolve();await Promise.resolve();
+ const redirected=mocks.hardNavigate.mock.calls.length;finish();await pending;expect(redirected).toBe(0);
+});
+test('FINAL_REVIEW the account-menu logout clears session-owned Redux and persisted services',async()=>{
+ const history=createMemoryHistory({initialEntries:['/']});const store=createAppStore(history,{...createInitialState(),profile:{id:'private',email:'test@example.com'}});
+ render(<Provider store={store}><AccountMenu profile={store.getState().profile} open onClose={()=>{}} onReferrals={()=>{}}/></Provider>);
+ fireEvent.click(screen.getByRole('button',{name:'Log out'}));await Promise.resolve();await Promise.resolve();
+ expect(store.getState().profile).toBeNull();expect(store.getState().sessionEpoch).toBe(1);
+});
+
+test('FINAL_REVIEW a successor epoch suppresses recovery after pending purge completes',async()=>{
+ const history=createMemoryHistory({initialEntries:['/']});const store=createAppStore(history,createInitialState());const finish=[];
+ store.dispatch((_dispatch,_getState,services)=>{services.assetCache={clear:()=>new Promise(resolve=>finish.push(resolve))};});
+ const app=new App({store,history});AuthStorage.logOut.mockResolvedValueOnce();mocks.hardNavigate.mockClear();
+ const pending=app.apiErrorResponseCallback({status:401});store.dispatch(endSession());finish.forEach(resolve=>resolve());await pending;
  expect(mocks.hardNavigate).not.toHaveBeenCalled();
 });
