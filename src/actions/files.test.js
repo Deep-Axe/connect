@@ -17,6 +17,23 @@ function run(thunk, state, services) {
 }
 
 describe('upload queue poll', () => {
+  it('unsupported upload files do not reject the poll', async () => {
+    athena.postJsonRpcPayload.mockResolvedValue({ result: [{
+      id: 'boot', url: `https://x/${A}/2026-08-06--12-00-00/0/bootlog.zst`,
+      progress: 0.2, current: true,
+    }] });
+    const services = createRoutingServices();
+    const state = { dongleId: A, sessionEpoch: 0, device: { dongle_id: A }, devices: [], filesUploading: {} };
+    const { promise, dispatched } = run(fetchUploadQueue(A), state, services);
+    try {
+      await expect(promise).resolves.toBeUndefined();
+      expect(dispatched.find((action) => action.type === 'ACTION_FILES_UPLOADING').uploading).toEqual({});
+      expect(services.uploads.inFlight).toBe(false);
+    } finally {
+      clearTimeout(services.uploads.timer);
+    }
+  });
+
   it('a reply that is not a queue stops the poll instead of throwing', async () => {
     athena.postJsonRpcPayload.mockResolvedValue({ result: {} });
     const services = createRoutingServices();
