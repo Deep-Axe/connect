@@ -373,7 +373,8 @@ export default function reducer(_state, action) {
       break;
     }
     case Types.ACTION_UPDATE_SHARED_DEVICE:
-      if (action.dongleId === state.dongleId) {
+      if (action.dongleId === state.dongleId
+        && !(state.devices || []).some((device) => device.dongle_id === action.dongleId)) {
         state.device = populateFetchedAt(action.device);
       }
       break;

@@ -19,7 +19,8 @@ import { currentOffset } from '../timeline';
 import { updateFiles } from '../actions/files';
 import * as Types from '../actions/types';
 import { selectSelectedRouteId, selectSelectedRouteMissing, selectSelectionOutOfRange, selectView } from './selectors';
-import { checkRoutesData } from '../actions';
+import { checkRoutesData, updateDevices } from '../actions';
+import { billing } from '../api';
 import { driveBack, leavePage, toDashboard, toDriveRange, toPrime } from './navigate';
 
 const api = vi.hoisted(() => ({
@@ -107,6 +108,26 @@ afterEach(() => {
 });
 
 describe('one URL → state path', () => {
+  it('newly paired devices load their owned resources', async () => {
+    const { history, store } = await start(`/${A}`);
+    const paired = 'cccccccccccccccc';
+    store.dispatch(updateDevices([...store.getState().devices, { dongle_id: paired, is_owner: true, prime: true }]));
+    billing.getSubscription.mockClear();
+    history.push(`/${paired}`);
+    await settle();
+    await settle();
+    expect(billing.getSubscription).toHaveBeenCalledWith(paired);
+  });
+
+  it('late shared-device responses cannot overwrite a listed device', async () => {
+    const { store } = await start(`/${A}`);
+    store.dispatch(updateDevices([{ dongle_id: A, alias: 'Current name', is_owner: true }]));
+    store.dispatch({ type: Types.ACTION_UPDATE_SHARED_DEVICE, dongleId: A,
+      device: { dongle_id: A, alias: 'Old name', is_owner: false } });
+    expect(store.getState().device.alias).toBe('Current name');
+    expect(store.getState().device.is_owner).toBe(true);
+  });
+
   it('commits the initial location once and loads its data once', async () => {
     const { store } = await start(`/${A}/${LOG}/10/20`);
     expect(store.getState().nav.generation).toBe(1);
