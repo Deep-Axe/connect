@@ -262,13 +262,14 @@ async function pollUploadQueueOnce(dongleId, dispatch, getState, target, stillWa
   const device = getDeviceFromState(getState(), dongleId);
   const uploadingFiles = {};
   const newCurrentUploading = {};
-  uploadQueue.result.forEach((uploading) => {
+  for (const uploading of uploadQueue.result) {
     const urlParts = uploading.url.split('?')[0].split('/');
     const filename = urlParts[urlParts.length - 1];
     const segNum = urlParts[urlParts.length - 2];
     const datetime = urlParts[urlParts.length - 3];
     const dongle = urlParts[urlParts.length - 4];
-    const type = Object.entries(FILE_NAMES).find((e) => e[1].includes(filename))[0];
+    const type = Object.entries(FILE_NAMES).find((entry) => entry[1].includes(filename))?.[0];
+    if (!type) continue;
     const fileName = `${dongle}|${datetime}--${segNum}/${type}`;
     const waitingWifi = Boolean(deviceOnCellular(device) && uploading.allow_cellular === false);
     uploadingFiles[fileName] = {
@@ -284,7 +285,7 @@ async function pollUploadQueueOnce(dongleId, dispatch, getState, target, stillWa
       paused: waitingWifi,
     };
     delete prevFilesUploading[uploading.id];
-  });
+  }
   // some item is done uploading
   if (Object.keys(prevFilesUploading).length) {
     const completedRoutes = new Set(Object.values(prevFilesUploading).map(upload => upload.fileName.split('--').slice(0, 2).join('--')));

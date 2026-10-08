@@ -47,6 +47,20 @@ const queueItem = (dongleId, id) => ({
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('upload queue poll', () => {
+  it('an unrecognized queue filename is skipped instead of rejecting the poll', async () => {
+    athena.postJsonRpcPayload.mockResolvedValue({
+      result: [{
+        id: 'odd', url: `https://x/${A}/${LOG}/0/not-a-camera.bin`, progress: 0.2, current: true,
+      }],
+    });
+    const h = harness();
+    await expect(h.dispatch(fetchUploadQueue(A))).resolves.toBeUndefined();
+    expect(h.getState().uploadQueues[A].uploading).toEqual({});
+    const target = h.services.uploads.targets.get(A);
+    expect(target.inFlight).toBe(false);
+    clearTimeout(target.timer);
+  });
+
   it('a reply that is not a queue stops the poll instead of throwing', async () => {
     athena.postJsonRpcPayload.mockResolvedValue({ result: {} });
     const h = harness();

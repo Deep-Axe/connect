@@ -339,22 +339,31 @@ export class PrimeManage extends Component {
   }
 
   cancelPrime() {
-    const lease = this.captureLease(true);
-    if (!lease.active()) return;
+    // The dialog lease gates the confirmation UI. The session lease gates the
+    // cache refresh: closing the dialog changes the URL, but the cancellation
+    // already happened and this device's subscription must be reloaded.
+    const dialog = this.captureLease(true);
+    const session = this.props.dispatch(captureOperation());
+    if (!dialog.active()) return undefined;
     this.setState({ canceling: true });
     this.props.dispatch(analyticsEvent('prime_cancel', { plan: this.props.subscription.plan }));
-    Billing.cancelPrime(this.props.dongleId).then((resp) => {
-      if (!lease.active()) return;
-      if (resp.success) {
-        this.setState({ canceling: false, cancelError: null, cancelSuccess: 'Cancelled subscription.' });
+    return Billing.cancelPrime(this.props.dongleId).then((resp) => {
+      if (!session.isCurrent()) return;
+      if (resp?.success) {
+        if (dialog.active()) {
+          this.setState({ canceling: false, cancelError: null, cancelSuccess: 'Cancelled subscription.' });
+        }
         this.fetchSubscription();
-      } else if (resp.error) {
+        return;
+      }
+      if (!dialog.active()) return;
+      if (resp?.error) {
         this.setState({ canceling: false, cancelError: resp.description });
       } else {
         this.setState({ canceling: false, cancelError: 'Could not cancel due to unknown error. Please try again.' });
       }
     }).catch((err) => {
-      if (!lease.active()) return;
+      if (!dialog.active()) return;
       Sentry.captureException(err, { fingerprint: 'primemanage_cancel_prime' });
       this.setState({ canceling: false, cancelError: 'Could not cancel due to unknown error. Please try again.' });
     });
@@ -375,7 +384,9 @@ export class PrimeManage extends Component {
 
   async switchPlan() {
     const { dongleId, subscription } = this.props;
-    const lease = this.captureLease(true);
+    const dialog = this.captureLease(true);
+    const session = this.props.dispatch(captureOperation());
+    const lease = dialog;
     if (!lease.active()) return;
     const plan = this.state.planSwitchTarget || otherPrimePlan(subscription.plan);
     const planName = primePlanName(plan);
@@ -389,13 +400,15 @@ export class PrimeManage extends Component {
       const subscribeInfo = plan === 'data' ? await Billing.getSubscribeInfo(dongleId) : null;
       if (!lease.active()) return;
       const response = await Billing.switchPrimePlan(dongleId, plan, subscribeInfo?.sim_id);
-      if (!lease.active()) return;
+      if (!session.isCurrent()) return;
       if (!response?.success) {
         const error = new Error('Unexpected billing response');
         error.code = 'unexpected_response';
         throw error;
       }
-      lease.dispatch(analyticsEvent('prime_switch_plan', { from: subscription.plan, to: plan }));
+      if (dialog.active()) {
+        lease.dispatch(analyticsEvent('prime_switch_plan', { from: subscription.plan, to: plan }));
+      }
       await this.fetchSubscription();
       if (lease.active()) {
         this.setState({
@@ -448,13 +461,12 @@ export class PrimeManage extends Component {
 
   async fetchSubscription(repeat = false) {
     const { dongleId } = this.props;
-    if (!this.mounted) {
-      return;
-    }
+    // Reload even if the confirmation dialog has closed. Retrying the read
+    // still requires this page to be the one showing this device.
     const lease = this.captureLease();
     try {
       const subscription = await this.props.dispatch(refreshSubscription(dongleId));
-      if (!lease.active()) return;
+      if (!this.mounted || !lease.isCurrent()) return;
       if (!subscription?.user_id) {
         this.scheduleRefresh(() => this.fetchSubscription(true), lease);
       }

@@ -116,6 +116,25 @@ it('a route request queued before logout does not start after logout', async () 
   expect(mocks.routes).not.toHaveBeenCalled();
 });
 
+it('direct drive links cap retained detail entities and keep the open drive', async () => {
+  const { store } = await start(`/${A}/${LOG}`);
+  const openName = `${A}|${LOG}`;
+  for (let i = 0; i < 25; i += 1) {
+    const log = `2026-08-08--12-00-${String(i).padStart(2, '0')}`;
+    store.dispatch({
+      type: 'ACTION_ROUTE_DETAIL_LOADED',
+      fullname: `${A}|${log}`,
+      route: route(A, log),
+      requestId: 100 + i,
+      fetchedAt: 1000 + i,
+    });
+  }
+  const routes = store.getState().entities.routes;
+  expect(Object.keys(routes).length).toBeLessThanOrEqual(21);
+  expect(routes[openName]).toBeDefined();
+  expect(routes[`${A}|2026-08-08--12-00-00`]).toBeUndefined();
+});
+
 it('a new whole drive starts at its own position while metadata is pending', async () => {
   const { history, store } = await start(`/${A}/${LOG}`);
   store.dispatch(seek(15000));

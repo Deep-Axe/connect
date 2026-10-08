@@ -210,19 +210,28 @@ function clearPrivateState(state) {
 // The selected drive's route just became known (from a list or a detail):
 // take zoom and loop from the URL's selection, intersected with the route.
 function adoptCurrentRoute(state, previousRoute, at) {
-  const drive = state.nav?.location?.base.drive;
+  const base = state.nav?.location?.base;
+  const drive = base?.drive;
   const route = selectCurrentRoute(state);
-  if (!drive || !route || (previousRoute && previousRoute.duration === route.duration)) return state;
+  // Metadata that arrives after the URL change still owes the stored playhead.
+  // A same-duration refresh that already has a position does not move it.
+  if (!drive || !route) return state;
+  if (previousRoute && previousRoute.duration === route.duration && state.offset != null) return state;
   const zoom = effectiveZoom(drive, route);
   if (!zoom) {
     state.zoom = null;
     state.loop = null;
   } else {
-    const position = state.offset == null ? null : offsetAt(state, at);
+    const remembered = state.offset == null ? state.runtime?.routes?.[`${base.dongleId}|${drive.logId}`] : null;
+    const raw = state.offset != null ? offsetAt(state, at) : remembered?.offset ?? null;
     state.zoom = zoom;
     state.loop = { startTime: zoom.start, duration: zoom.end - zoom.start };
-    state.offset = position == null ? zoom.start : Math.max(zoom.start, Math.min(position, zoom.end));
+    state.offset = raw == null ? zoom.start : Math.max(zoom.start, Math.min(raw, zoom.end));
     state.startTime = at;
+    if (remembered && raw != null) {
+      state.desiredPlaySpeed = remembered.speed ?? 1;
+      state.isBufferingVideo = true;
+    }
   }
   return state;
 }
@@ -389,6 +398,7 @@ export default function reducer(_state, action) {
         },
       };
       state = adoptCurrentRoute(state, previousRoute, action.fetchedAt);
+      state = pruneRouteLists(state);
       break;
     }
     default:
