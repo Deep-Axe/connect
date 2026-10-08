@@ -1,6 +1,4 @@
-// Destination helpers: the only code that writes browser history. They
-// never touch navigation state directly; the routing middleware applies the
-// resulting location like any other.
+// Build destinations and update history; middleware commits navigation state.
 
 import { goBack, push, replace } from 'connected-react-router';
 
@@ -24,8 +22,7 @@ import {
 import { selectNavLocation } from './selectors';
 import { fallbackServices } from './services';
 
-// Navigate to a complete location. A push records its parent entry so a
-// later "back" can be verified (see services.createHistoryTracker).
+// Record the parent entry on PUSH for verified Back navigation.
 // `interactive` marks an entry opened by a user action in this session.
 export function navigateToLocation(location, { replace: replaceEntry = false, interactive = false } = {}) {
   return (dispatch, getState) => {
@@ -57,8 +54,7 @@ export const toStream = (dongleId) => navigate(deviceBase(VIEWS.STREAM, dongleId
 export const toReferrals = () => navigate(referralsBase());
 export const toDrive = (dongleId, logId) => navigate(driveBase(dongleId, logId));
 
-// Canonical drive bounds for a millisecond selection: rounded outward to
-// whole seconds exactly once, here. Returns null for an invalid selection.
+// Round valid millisecond selections outward to whole seconds; otherwise return null.
 export function quantizeRange(startMs, endMs) {
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs < 0 || endMs <= startMs) return null;
   const start = Math.floor(startMs / 1000) * 1000;
@@ -75,8 +71,7 @@ export function toDriveRange(dongleId, logId, startMs, endMs) {
   };
 }
 
-// Return to the verified parent entry when `accepts(parentBase)` holds,
-// otherwise navigate to `fallback`.
+// Return to an accepted, verified parent; otherwise use the fallback.
 function backOr(accepts, fallback, options) {
   return (dispatch, getState, services = fallbackServices) => {
     const current = getState().router.location;
@@ -94,8 +89,7 @@ const anyParent = () => true;
 // leave a full-page task (Prime, stream, referrals) for where the user came from
 export const leavePage = (dongleId) => backOr(anyParent, dongleId ? deviceBase(VIEWS.DASHBOARD, dongleId) : rootBase());
 
-// drive back arrow: return to a verified wider selection of the same drive,
-// otherwise replace the current selection with the whole drive
+// Drive Back restores a verified wider selection, or falls back to the whole drive.
 export function driveBack() {
   return (dispatch, getState) => {
     const base = selectNavLocation(getState())?.base;

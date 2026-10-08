@@ -1,8 +1,5 @@
-// Work triggered by a committed navigation. The commit itself (the reducer)
-// is synchronous and pure; everything here runs afterwards. Each effect
-// states its prerequisites explicitly: effects that need the device list
-// wait for the session, and effects that redirect check that their
-// navigation is still current.
+// Run post-navigation effects after their prerequisites resolve.
+// Redirects and URL rewrites require current navigation ownership.
 
 import { replace } from 'connected-react-router';
 import * as Sentry from '@sentry/react';
@@ -29,8 +26,7 @@ function rememberedOrFirstDevice(devices) {
   return devices.find((d) => d.dongle_id === remembered) || devices[0] || null;
 }
 
-// A pair token from the URL is stored (it survives a login redirect) and
-// handed to the explorer, once per token per session.
+// Persist pair tokens across login and deliver each once per session.
 function receivePairToken(token, ctx) {
   const { commands } = ctx.services;
   commands.pairPromises ??= new Map();
@@ -59,18 +55,14 @@ function receivePairToken(token, ctx) {
   return pending;
 }
 
-// One-shot query arguments: act on them, then drop them from the URL. Returns
-// true only when the location is being replaced by a different page (a
-// post-login return target); otherwise the page's own effects still run, and
-// the follow-up commit without the arguments is a no-op.
+// Consume query commands. Return true when a redirect replaces the current page.
 async function consumeCommands(next, ctx) {
   const { commands, base } = next;
   const { dispatch } = ctx;
   const consumed = [];
 
   if (!ctx.isLatest()) return false;
-  // Pair handover precedes a sibling return redirect. Persisting may yield,
-  // so authorize that redirect again after the prerequisite.
+  // Persist pairing before redirecting; recheck ownership after the await.
   if (commands.pair) await receivePairToken(commands.pair, ctx);
   if (!ctx.isCurrent() || !ctx.isLatest()) return true;
 
@@ -93,8 +85,7 @@ async function consumeCommands(next, ctx) {
   }
 
   consumed.push(...CONSUMED_COMMANDS.filter((key) => commands[key] != null));
-  // rewrite only the exact location the commands came from; a newer one (even
-  // on the same page) is left as it is
+  // Remove commands only from their original location.
   if (consumed.length && ctx.isLatest()) {
     dispatch(replace(buildUrl(withoutCommands(next, consumed))));
   }
@@ -174,9 +165,7 @@ export async function runNavigationEffects(previous, next, ctx) {
         Sentry.captureException(err, { fingerprint: 'navigation_effect' });
       });
 
-  // the stream connection: compare where we are with who actually holds it
-  // (not with the previous URL: an intermediate page may never have run its
-  // effects); the connection manager decides what stays open
+  // Release the actual stream owner; an intermediate page may have skipped effects.
   const { dongleId } = ctx.getState();
   const deviceChanged = Boolean(base.dongleId && dongleId === base.dongleId && dongleId !== ctx.previousDongleId);
   const streaming = webrtcConnectionManager.streamDongleId;
