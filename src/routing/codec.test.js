@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  VIEWS, anonymizedPath, buildUrl, driveBase, isSafeReturnUrl, locationOfUrl, parseLocation,
-} from './codec';
+import { VIEWS, anonymizedPath, buildUrl, driveBase, isSafeReturnUrl, locationOfUrl, parseLocation } from './codec';
 import { quantizeRange } from './navigate';
 
 const D = '0000aaaa0000aaaa';
@@ -54,7 +52,12 @@ describe('parseLocation', () => {
   it('separates commands from extensions and keeps extension order', () => {
     const location = parse(`/${D}?ci=1&pair=tok&b=2&a=1&b=3#frag`);
     expect(location.commands).toEqual({ pair: 'tok' });
-    expect(location.extensions).toEqual([['ci', '1'], ['b', '2'], ['a', '1'], ['b', '3']]);
+    expect(location.extensions).toEqual([
+      ['ci', '1'],
+      ['b', '2'],
+      ['a', '1'],
+      ['b', '3'],
+    ]);
     expect(location.hash).toBe('#frag');
   });
 
@@ -101,8 +104,12 @@ describe('buildUrl', () => {
 
   it('refuses invalid destinations', () => {
     expect(() => buildUrl({ base: driveBase('bad', LOG), commands: {}, extensions: [] })).toThrow('invalid dongle id');
-    expect(() => buildUrl({ base: driveBase(D, LOG, 1500, 3000), commands: {}, extensions: [] })).toThrow('invalid drive range');
-    expect(() => buildUrl({ base: driveBase(D, LOG, 3000, 1000), commands: {}, extensions: [] })).toThrow('invalid drive range');
+    expect(() => buildUrl({ base: driveBase(D, LOG, 1500, 3000), commands: {}, extensions: [] })).toThrow(
+      'invalid drive range',
+    );
+    expect(() => buildUrl({ base: driveBase(D, LOG, 3000, 1000), commands: {}, extensions: [] })).toThrow(
+      'invalid drive range',
+    );
   });
 });
 
@@ -152,15 +159,30 @@ describe('modals', () => {
   it.each([
     [`/${D}/settings`, { view: VIEWS.DASHBOARD, dongleId: D }, { kind: 'settings', dongleId: D, panel: null }],
     [`/${D}/settings/uploads`, { view: VIEWS.DASHBOARD }, { kind: 'settings', dongleId: D, panel: 'uploads' }],
-    [`/${D}/${LOG}/10/20?modal=settings&modalDevice=${B}`, { view: VIEWS.DRIVE, drive: { start: 10000 } }, { kind: 'settings', dongleId: B }],
-    [`/${D}/${LOG}?modal=settings&panel=uploads`, { view: VIEWS.DRIVE }, { kind: 'settings', dongleId: D, panel: 'uploads' }],
+    [
+      `/${D}/${LOG}/10/20?modal=settings&modalDevice=${B}`,
+      { view: VIEWS.DRIVE, drive: { start: 10000 } },
+      { kind: 'settings', dongleId: B },
+    ],
+    [
+      `/${D}/${LOG}?modal=settings&panel=uploads`,
+      { view: VIEWS.DRIVE },
+      { kind: 'settings', dongleId: D, panel: 'uploads' },
+    ],
     [`/referrals?modal=settings&modalDevice=${B}`, { view: VIEWS.REFERRALS }, { kind: 'settings', dongleId: B }],
     ['/devices/add', { view: VIEWS.ROOT }, { kind: 'add-device', dongleId: null }],
     [`/${D}/${LOG}?modal=add-device`, { view: VIEWS.DRIVE }, { kind: 'add-device' }],
     [`/${D}/clips`, { view: VIEWS.DASHBOARD }, { kind: 'clips', dongleId: D, clip: null }],
-    [`/${D}/clips?clip=a.mp4&clipRequestedAt=1700000000`, { view: VIEWS.DASHBOARD },
-      { kind: 'clips', clip: { filename: 'a.mp4', requestedAt: '1700000000' } }],
-    [`/${D}/clips?clip=a.mp4`, { view: VIEWS.DASHBOARD }, { kind: 'clips', clip: { filename: 'a.mp4', requestedAt: null } }],
+    [
+      `/${D}/clips?clip=a.mp4&clipRequestedAt=1700000000`,
+      { view: VIEWS.DASHBOARD },
+      { kind: 'clips', clip: { filename: 'a.mp4', requestedAt: '1700000000' } },
+    ],
+    [
+      `/${D}/clips?clip=a.mp4`,
+      { view: VIEWS.DASHBOARD },
+      { kind: 'clips', clip: { filename: 'a.mp4', requestedAt: null } },
+    ],
     [`/${D}/${LOG}?modal=clips&modalDevice=${B}`, { view: VIEWS.DRIVE }, { kind: 'clips', dongleId: B }],
     [`/${D}/prime/cancel`, { view: VIEWS.PRIME }, { kind: 'cancel', dongleId: D }],
     [`/${D}/prime/change-plan`, { view: VIEWS.PRIME }, { kind: 'change-plan', dongleId: D }],
