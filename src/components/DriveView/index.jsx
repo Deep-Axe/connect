@@ -6,7 +6,7 @@ import { Button, IconButton, Typography } from '@material-ui/core';
 
 import { VIEWS, buildUrl, deviceBase, locationFor } from '../../routing/codec';
 import { driveBack, toDashboard, toDrive } from '../../routing/navigate';
-import { selectSelectionOutOfRange } from '../../routing/selectors';
+import { selectSelectedRouteMissing, selectSelectionOutOfRange } from '../../routing/selectors';
 import { ArrowBackBold, CloseBold } from '../../icons';
 import { filterRegularClick } from '../../utils';
 
@@ -24,12 +24,12 @@ class DriveView extends Component {
   }
 
   render() {
-    const { dongleId, zoom, currentRoute, routes, selectionOutOfRange } = this.props;
+    const { dongleId, zoom, currentRoute, routeMissing, selectionOutOfRange } = this.props;
 
     if (!currentRoute) {
       return (
         <div className="DriveView p-8">
-          <Typography>{routes === null ? 'Loading...' : 'Route does not exist.'}</Typography>
+          <Typography>{routeMissing ? 'Route does not exist.' : 'Loading...'}</Typography>
         </div>
       );
     }
@@ -92,9 +92,7 @@ class DriveView extends Component {
             <Timeline route={currentRoute} thumbnailsVisible hasRuler />
           </div>
           <div className='px-3 pb-3 md:px-8 md:pb-8'>
-            {(routes && routes.length === 0)
-              ? <Typography>Route does not exist.</Typography>
-              : <Media />}
+            <Media />
           </div>
         </div>
       </div>
@@ -104,10 +102,10 @@ class DriveView extends Component {
 
 const stateToProps = (state) => ({
   dongleId: state.dongleId,
-  routes: state.routes,
   zoom: state.zoom,
   currentRoute: state.currentRoute,
   selectionOutOfRange: selectSelectionOutOfRange(state),
+  routeMissing: selectSelectedRouteMissing(state),
 });
 
 export default connect(stateToProps)(DriveView);

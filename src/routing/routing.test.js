@@ -10,11 +10,19 @@ const onLocationChanged = (location, action) => ({ type: LOCATION_CHANGE, payloa
 
 import { createInitialState } from '../initialState';
 import { createAppStore } from '../store';
-import { selectSelectedRouteId, selectSelectionOutOfRange, selectView } from './selectors';
-import { driveBack, leavePage, toDriveRange, toPrime } from './navigate';
+import localforage from 'localforage';
+import { hardNavigate } from '../utils/navigation';
+import { webrtcConnectionManager } from '../utils/webrtc';
+import { endSession } from '../actions/session';
+import { updateFiles } from '../actions/files';
+import * as Types from '../actions/types';
+import { selectSelectedRouteId, selectSelectedRouteMissing, selectSelectionOutOfRange, selectView } from './selectors';
+import { checkRoutesData } from '../actions';
+import { driveBack, leavePage, toDashboard, toDriveRange, toPrime } from './navigate';
 
 const api = vi.hoisted(() => ({
   authenticated: true,
+  backendType: null,
   getRoutesSegments: vi.fn(),
   listDevices: vi.fn(),
   getProfile: vi.fn(),
@@ -22,6 +30,8 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock('../api/backend', () => ({
+  activeBackendType: () => api.backendType,
+  selectBackendType: (pathname) => (pathname.startsWith('/deadbeefdeadbeef') || pathname.startsWith('/demo') ? 'demo' : 'real'),
   api: {
     auth: { isAuthenticated: () => api.authenticated, logOut: vi.fn() },
     account: { getProfile: api.getProfile },
@@ -34,6 +44,10 @@ vi.mock('../api', () => ({
 }));
 vi.mock('../utils/webrtc', () => ({ webrtcConnectionManager: { disconnect: vi.fn(), reconnect: vi.fn() } }));
 vi.mock('../utils/navigation', () => ({ hardNavigate: vi.fn() }));
+vi.mock('localforage', () => {
+  const items = new Map();
+  return { default: { items, getItem: async (k) => items.get(k) ?? null, setItem: async (k, v) => { items.set(k, v); return v; }, removeItem: async (k) => { items.delete(k); } } };
+});
 
 const A = 'aaaaaaaaaaaaaaaa';
 const B = 'bbbbbbbbbbbbbbbb';
@@ -299,8 +313,9 @@ describe('commands', () => {
     await settle();
     expect(history.location.search).toBe('?ci=1');
     expect(store.getState().primeStripeResult).toEqual({ success: '1', cancelled: null });
-    expect(api.getRoutesSegments).toHaveBeenCalled();
+    // the Prime page's own effects still ran (it doesn't need the drive list)
     expect(api.fetchDevice).toHaveBeenCalledWith(A);
+    expect(api.getRoutesSegments).not.toHaveBeenCalled();
     expect(localStorage.getItem('selectedDongleId')).toBe(A);
   });
 
@@ -329,3 +344,181 @@ describe('commands', () => {
     expect(history.length).toBe(1);
   });
 });
+
+// Regressions for IMPROVE_ARCH_DOCS/PR1_VERIFICATION.md (the reviewer's probes
+// plus the findings they described without a probe).
+describe('PR1 verification findings', () => {
+  const url = (history) => `${history.location.pathname}${history.location.search}${history.location.hash}`;
+
+  it('a same-drive range edit keeps unknown arguments (in order) and the hash', async () => {
+    const { history, store } = await start(`/${A}/${LOG}?x=one&x=two&ci=1#bookmark`);
+    store.dispatch(toDriveRange(A, LOG, 1234, 5678));
+    await settle();
+    expect(url(history)).toBe(`/${A}/${LOG}/1/6?x=one&x=two&ci=1#bookmark`);
+  });
+
+  it('a different page keeps only the global arguments', async () => {
+    const { history, store } = await start(`/${A}/${LOG}?x=one&ci=1#bookmark`);
+    store.dispatch(toDashboard(B));
+    await settle();
+    expect(url(history)).toBe(`/${B}?ci=1`);
+  });
+
+  it('a queued canonical rewrite cannot overwrite a later navigation', async () => {
+    const { history } = await start(`/${A}`);
+    history.push(`/${A}/`);
+    history.push(`/${B}`);
+    await settle(); await settle();
+    expect(history.location.pathname).toBe(`/${B}`);
+  });
+
+  it('a queued return command cannot redirect after a later navigation', async () => {
+    const { history } = await start(`/${A}`);
+    history.push(`/${A}?r=${encodeURIComponent(`/${B}`)}`); // canonical, so its effects are queued
+    history.push(`/${A}/${LOG}`);
+    await settle(); await settle();
+    expect(history.location.pathname).toBe(`/${A}/${LOG}`);
+  });
+
+  it('an invalid link runs none of its commands', async () => {
+    const { history, store } = await start(`/${A}?r=/${B}&r=/${A}/${LOG}`);
+    expect(selectView(store.getState())).toBe('invalid');
+    expect(history.location.search).toBe(`?r=/${B}&r=/${A}/${LOG}`);
+  });
+
+  it('switching from a loaded drive to another drive fetches it, keeping the list', async () => {
+    const { history, store } = await start(`/${A}`);
+    const list = store.getState().routes;
+    history.push(`/${A}/${LOG}`);
+    await settle();
+    expect(store.getState().currentRoute?.log_id).toBe(LOG);
+    api.getRoutesSegments.mockClear();
+    history.push(`/${A}/${OTHER_LOG}`);
+    await settle(); await settle();
+    expect(api.getRoutesSegments).toHaveBeenCalledWith(A, undefined, undefined, undefined, `${A}|${OTHER_LOG}`);
+    expect(store.getState().currentRoute?.log_id).toBe(OTHER_LOG);
+    expect(store.getState().routes.map((r) => r.log_id)).toEqual([...list.map((r) => r.log_id), OTHER_LOG]);
+  });
+
+  it('a drive that does not exist is reported once, without retrying', async () => {
+    api.getRoutesSegments.mockImplementation(async (dongleId, _s, _e, _l, routeStr) => (routeStr ? [] : [route(dongleId, LOG)]));
+    const { history, store } = await start(`/${A}`);
+    history.push(`/${A}/${OTHER_LOG}`);
+    await settle(); await settle();
+    expect(selectSelectedRouteMissing(store.getState())).toBe(true);
+    const calls = api.getRoutesSegments.mock.calls.length;
+    store.dispatch(checkRoutesData());
+    await settle();
+    expect(api.getRoutesSegments).toHaveBeenCalledTimes(calls);
+  });
+
+  it('an older response for the same view cannot overwrite a newer one (A → B → A)', async () => {
+    const answers = [];
+    api.getRoutesSegments.mockImplementation((dongleId) => new Promise((resolve) => answers.push({ dongleId, resolve })));
+    const { history, store } = await start(`/${A}`);
+    history.push(`/${B}`);
+    await settle();
+    history.push(`/${A}`);
+    await settle();
+    const [a1, , a2] = answers;
+    a2.resolve([route(A, OTHER_LOG)]);
+    await settle();
+    a1.resolve([route(A, LOG)]);
+    await settle();
+    expect(store.getState().routes.map((r) => r.log_id)).toEqual([OTHER_LOG]);
+  });
+
+  it('an old empty response cannot send a newer visit to login', async () => {
+    api.authenticated = false;
+    const answers = [];
+    api.getRoutesSegments.mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    const { history } = await start(`/${A}/${LOG}`);
+    history.push(`/${B}/${LOG}`);
+    await settle();
+    history.push(`/${A}/${LOG}`);
+    await settle();
+    answers[0]([]); // the first visit's empty answer arrives while the second is pending
+    await settle();
+    expect(hardNavigate).not.toHaveBeenCalled();
+    answers[2]([route(A, LOG)]);
+    await settle();
+    expect(hardNavigate).not.toHaveBeenCalled();
+  });
+
+  it('ending the session clears private state and ignores late results from it', async () => {
+    let finishProfile;
+    let finishDevices;
+    api.getProfile.mockImplementation(() => new Promise((resolve) => { finishProfile = resolve; }));
+    api.listDevices.mockImplementation(() => new Promise((resolve) => { finishDevices = resolve; }));
+    const { store } = await start(`/${A}`);
+    store.dispatch(endSession());
+    finishProfile({ id: 'old-user' });
+    finishDevices([{ dongle_id: A, is_owner: true }]);
+    await settle(); await settle();
+    expect(store.getState().profile).toBeNull();
+    expect(store.getState().devices).toBeNull();
+
+    // any result started before the end carries the old epoch
+    store.dispatch({ type: Types.ACTION_PRIME_SUBSCRIPTION, dongleId: A, subscription: { old: true }, epoch: 0 });
+    expect(store.getState().subscription).toBeNull();
+  });
+
+  it('a fresh bootstrap after the session ended does not reuse the old one', async () => {
+    const { store } = await start(`/${A}`);
+    expect(store.getState().profile).toEqual({ id: 'user', superuser: false });
+    store.dispatch(endSession());
+    expect(store.getState().profile).toBeNull();
+    api.getProfile.mockResolvedValue({ id: 'next-user' });
+    const { bootstrapSession } = await import('../actions/session');
+    await store.dispatch(bootstrapSession());
+    expect(store.getState().profile).toEqual({ id: 'next-user' });
+  });
+
+  it('upload results belong to the device they were started for', async () => {
+    const { history, store } = await start(`/${A}`);
+    history.push(`/${B}`);
+    await settle();
+    store.dispatch(updateFiles({ [`${A}|${LOG}--0/cameras`]: { progress: 0 } }, A));
+    expect(store.getState().files).toBeNull();
+  });
+
+  it('a pair token arriving by URL later in the session is stored and handed over', async () => {
+    const { history, store } = await start(`/${A}`);
+    history.push(`/${A}?pair=token-1`);
+    await settle(); await settle();
+    expect(localforage.items.get('pairToken')).toBe('token-1');
+    expect(store.getState().pairRequests).toBe(1);
+    expect(history.location.search).toBe('');
+  });
+
+  it('leaving the stream page releases its connection', async () => {
+    const { history } = await start(`/${A}/stream`);
+    webrtcConnectionManager.disconnect.mockClear();
+    history.push(`/${A}`);
+    await settle();
+    expect(webrtcConnectionManager.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('crossing between the demo and real backends reloads the page', async () => {
+    api.backendType = 'real';
+    try {
+      const { history } = await start(`/${A}`);
+      history.push('/deadbeefdeadbeef');
+      await settle();
+      expect(hardNavigate).toHaveBeenCalledWith('/deadbeefdeadbeef');
+    } finally {
+      api.backendType = null;
+    }
+  });
+
+  it('root resolution keeps the global arguments and hash; legacy keeps everything', async () => {
+    localStorage.setItem('selectedDongleId', B);
+    const root = await start('/?ci=1#bookmark');
+    expect(url(root.history)).toBe(`/${B}?ci=1#bookmark`);
+
+    const legacy = await start(`/${A}/1000/61000?x=one&x=two&ci=1#bookmark`);
+    await settle();
+    expect(url(legacy.history)).toBe(`/${A}/${LOG}?x=one&x=two&ci=1#bookmark`);
+  });
+});
+

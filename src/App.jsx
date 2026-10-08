@@ -2,7 +2,6 @@ import React, { Component, lazy, Suspense } from 'react';
 import { Provider } from 'react-redux';
 import { Route, Switch, Redirect } from 'react-router-dom';
 import { ConnectedRouter } from 'connected-react-router';
-import localforage from 'localforage';
 import * as Sentry from '@sentry/react';
 
 import MyCommaAuth, { config as AuthConfig, storage as AuthStorage } from '@commaai/my-comma-auth';
@@ -29,17 +28,6 @@ class App extends Component {
       initialized: false,
     };
     this.apiErrorResponseCallback = this.apiErrorResponseCallback.bind(this);
-
-    // the pair command is consumed (removed from the URL) by the navigation
-    // effects; store the token before the explorer reads it
-    const { pair: pairToken } = parseLocation(this.history().location).commands;
-    if (pairToken) {
-      try {
-        localforage.setItem('pairToken', pairToken);
-      } catch (err) {
-        console.error(err);
-      }
-    }
   }
 
   store() {

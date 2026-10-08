@@ -58,8 +58,9 @@ describe('parseLocation', () => {
     expect(location.hash).toBe('#frag');
   });
 
-  it('rejects a duplicated command', () => {
+  it('rejects a duplicated command and keeps none of its commands', () => {
     expect(base(`/${D}?r=/a&r=/b`)).toMatchObject({ view: VIEWS.INVALID, reason: 'duplicate-query-key' });
+    expect(parse(`/${D}?r=/a&r=/b&pair=x`).commands).toEqual({});
   });
 
   it('reads auth callback arguments only on the auth path', () => {

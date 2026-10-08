@@ -9,14 +9,59 @@ import { hardNavigate } from '../utils/navigation';
 import { urlOfRouterLocation } from '../routing/codec';
 import { selectSelectedRouteId } from '../routing/selectors';
 import { fallbackServices } from '../routing/services';
+import { ownedDispatch } from './owned';
 
 const LIMIT_INCREMENT = 5
 
+function normalizeRoute(r) {
+  let startTime = r.segment_start_times[0];
+  let endTime = r.segment_end_times[r.segment_end_times.length - 1];
+
+  // TODO: these will all be relative times soon
+  // fix segment boundary times for routes that have the wrong time at the start
+  if ((Math.abs(r.start_time_utc_millis - startTime) > 24 * 60 * 60 * 1000)
+      && (Math.abs(r.end_time_utc_millis - endTime) < 10 * 1000)) {
+    startTime = r.start_time_utc_millis;
+    endTime = r.end_time_utc_millis;
+    r.segment_start_times = r.segment_numbers.map((x) => startTime + (x * 60 * 1000));
+    r.segment_end_times = r.segment_numbers.map((x) => Math.min(startTime + ((x + 1) * 60 * 1000), endTime));
+  }
+  // TODO: backwards compatiblity, remove later
+  if (r.distance == null && r.length != null) {
+    r.distance = r.length;
+  }
+  return {
+    ...r,
+    url: r.url.replace('chffrprivate.blob.core.windows.net', 'chffrprivate.azureedge.net'),
+    log_id: r.fullname.split('|')[1],
+    duration: endTime - startTime,
+    start_time_utc_millis: startTime,
+    end_time_utc_millis: endTime,
+    // TODO: get this from the API, this isn't correct for segments with a time jump
+    segment_durations: r.segment_start_times.map((x, i) => r.segment_end_times[i] - x),
+  };
+}
+
+// What the active routes view still needs: nothing, the selected drive's
+// detail (the list is loaded but doesn't contain it), or the list itself
+// (fetched by route when a drive is selected, as on a cold drive link).
+function routesNeed(state) {
+  const selectedRouteId = selectSelectedRouteId(state);
+  const selectedKnown = !selectedRouteId
+    || state.routes?.some((route) => route.log_id === selectedRouteId)
+    || state.missingRoute === `${state.dongleId}|${selectedRouteId}`;
+  if (hasRoutesData(state)) return selectedKnown ? null : 'detail';
+  return 'list';
+}
+
 // Everything that determines the result of a routes request. A response is
-// only applied while this identity is still the current one.
+// only applied while this identity is still the current one. It includes
+// what the view still needs, so once any response for a view is applied, an
+// older one for the same view no longer matches (A → B → A).
 function routesRequestKey(state) {
   return JSON.stringify([
     state.sessionEpoch, state.dongleId, selectSelectedRouteId(state), state.filter.start, state.filter.end, state.limit,
+    routesNeed(state),
   ]);
 }
 
@@ -26,7 +71,8 @@ export function checkRoutesData() {
     if (!state.dongleId) {
       return;
     }
-    if (hasRoutesData(state)) {
+    const need = routesNeed(state);
+    if (!need) {
       // already has metadata, don't bother
       return;
     }
@@ -37,9 +83,10 @@ export function checkRoutesData() {
       return pending.promise;
     }
     console.debug('We need to update the segment metadata...');
-    const { dongleId, limit: fetchLimit } = state;
+    const { dongleId, limit: fetchLimit, sessionEpoch: epoch } = state;
     const fetchRange = state.filter;
     const selectedRouteId = selectSelectedRouteId(state);
+    const generation = services.navigation.generation;
 
     // if requested segment range not in loaded routes, fetch it explicitly
     const req = selectedRouteId
@@ -59,44 +106,24 @@ export function checkRoutesData() {
         dispatch(checkRoutesData());
         return;
       }
-      if (routesData && routesData.length === 0
-        && !api.auth.isAuthenticated()) {
+      if (routesData && routesData.length === 0 && !api.auth.isAuthenticated()) {
         release();
-        // redirect to login, returning to the complete current location
-        hardNavigate(`/?${new URLSearchParams({ r: urlOfRouterLocation(state.router.location) })}`);
+        // redirect to login, returning to the complete current location; only
+        // for the navigation that asked
+        if (services.navigation.generation === generation) {
+          hardNavigate(`/?${new URLSearchParams({ r: urlOfRouterLocation(state.router.location) })}`);
+        }
         return;
       }
 
-      const routes = routesData.map((r) => {
-        let startTime = r.segment_start_times[0];
-        let endTime = r.segment_end_times[r.segment_end_times.length - 1];
+      const routes = (routesData || []).map(normalizeRoute).sort((a, b) => b.create_time - a.create_time);
 
-        // TODO: these will all be relative times soon
-        // fix segment boundary times for routes that have the wrong time at the start
-        if ((Math.abs(r.start_time_utc_millis - startTime) > 24 * 60 * 60 * 1000)
-            && (Math.abs(r.end_time_utc_millis - endTime) < 10 * 1000)) {
-          startTime = r.start_time_utc_millis;
-          endTime = r.end_time_utc_millis;
-          r.segment_start_times = r.segment_numbers.map((x) => startTime + (x * 60 * 1000));
-          r.segment_end_times = r.segment_numbers.map((x) => Math.min(startTime + ((x + 1) * 60 * 1000), endTime));
-        }
-        // TODO: backwards compatiblity, remove later
-        if (r.distance == null && r.length != null) {
-          r.distance = r.length;
-        }
-        return {
-          ...r,
-          url: r.url.replace('chffrprivate.blob.core.windows.net', 'chffrprivate.azureedge.net'),
-          log_id: r.fullname.split('|')[1],
-          duration: endTime - startTime,
-          start_time_utc_millis: startTime,
-          end_time_utc_millis: endTime,
-          // TODO: get this from the API, this isn't correct for segments with a time jump
-          segment_durations: r.segment_start_times.map((x, i) => r.segment_end_times[i] - x),
-        };
-      }).sort((a, b) => {
-        return b.create_time - a.create_time;
-      });
+      if (need === 'detail') {
+        dispatch(routes.length
+          ? { type: Types.ACTION_ROUTE_DETAIL, dongleId, route: routes[0], epoch }
+          : { type: Types.ACTION_ROUTE_DETAIL_MISSING, dongleId, logId: selectedRouteId, epoch });
+        return routes;
+      }
 
       dispatch({
         type: Types.ACTION_ROUTES_METADATA,
@@ -104,7 +131,11 @@ export function checkRoutesData() {
         start: fetchRange.start,
         end: fetchRange.end,
         routes,
+        epoch,
       });
+      if (selectedRouteId && !routes.some((route) => route.log_id === selectedRouteId)) {
+        dispatch({ type: Types.ACTION_ROUTE_DETAIL_MISSING, dongleId, logId: selectedRouteId, epoch });
+      }
 
       return routes
     }).catch((err) => {
@@ -151,7 +182,8 @@ export function primeGetSubscription(dongleId, subscription) {
 }
 
 export function primeFetchSubscription(dongleId, device, profile) {
-  return (dispatch, getState) => {
+  return (rawDispatch, getState) => {
+    const dispatch = ownedDispatch(rawDispatch, getState);
     const state = getState();
 
     if (!device && state.device && state.device.dongle_id === dongleId) {
@@ -186,7 +218,8 @@ export function primeFetchSubscription(dongleId, device, profile) {
 }
 
 export function fetchDeviceOnline(dongleId) {
-  return (dispatch) => {
+  return (rawDispatch, getState) => {
+    const dispatch = ownedDispatch(rawDispatch, getState);
     api.devices.fetchDevice(dongleId).then((resp) => {
       dispatch({
         type: Types.ACTION_UPDATE_DEVICE_ONLINE,
@@ -199,7 +232,8 @@ export function fetchDeviceOnline(dongleId) {
 }
 
 export function fetchSharedDevice(dongleId) {
-  return async (dispatch) => {
+  return async (rawDispatch, getState) => {
+    const dispatch = ownedDispatch(rawDispatch, getState);
     try {
       const resp = await api.devices.fetchDevice(dongleId);
       dispatch({
@@ -228,7 +262,8 @@ export function updateDeviceOnline(dongleId, lastAthenaPing) {
 }
 
 export function fetchDeviceNetworkStatus(dongleId) {
-  return async (dispatch, getState) => {
+  return async (rawDispatch, getState) => {
+    const dispatch = ownedDispatch(rawDispatch, getState);
     const device = getDeviceFromState(getState(), dongleId);
     if (deviceVersionAtLeast(device, '0.8.14')) {
       const payload = {
@@ -284,7 +319,8 @@ export function fetchDeviceNetworkStatus(dongleId) {
 }
 
 export function fetchDeviceNotCar(dongleId) {
-  return async (dispatch, getState) => {
+  return async (rawDispatch, getState) => {
+    const dispatch = ownedDispatch(rawDispatch, getState);
     const device = getDeviceFromState(getState(), dongleId);
     if (!deviceIsOnline(device)) {
       return;

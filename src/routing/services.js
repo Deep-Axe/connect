@@ -55,7 +55,11 @@ export function createRoutingServices() {
     history: createHistoryTracker(),
     navigation: { generation: 0 },
     session: { promise: null },
-    requests: { routes: null },
+    requests: {
+      routes: null,
+      events: new Map(), coords: new Map(), driveCoords: new Map(),
+    },
+    commands: { pairToken: null },
   };
 }
 

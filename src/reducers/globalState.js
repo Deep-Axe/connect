@@ -44,6 +44,7 @@ function applySelectedDevice(state, dongleId) {
     subscribeInfo: null,
     primeStripeResult: null,
     files: null,
+    missingRoute: null,
     limit: 0,
     ...(sameRoutes ? {} : {
       routesMeta: { dongleId: null, start: null, end: null },
@@ -117,7 +118,59 @@ function applySelectedDrive(state, previousBase, base, at) {
   return state;
 }
 
+// Everything the signed-in session can see. Cleared when it ends; the URL
+// (navigation) is not private and stays.
+function clearPrivateState(state) {
+  Object.keys(eventsMap).forEach((key) => delete eventsMap[key]);
+  Object.keys(locationMap).forEach((key) => delete locationMap[key]);
+  return {
+    ...state,
+    sessionEpoch: (state.sessionEpoch || 0) + 1,
+    profile: null,
+    devices: null,
+    device: null,
+    subscription: null,
+    subscribeInfo: null,
+    primeStripeResult: null,
+    files: null,
+    filesUploading: {},
+    filesUploadingMeta: { dongleId: null, fetchedAt: null },
+    routes: null,
+    routesMeta: { dongleId: null, start: null, end: null },
+    lastRoutes: null,
+    currentRoute: null,
+    missingRoute: null,
+    limit: 0,
+  };
+}
+
+// The selected route once its metadata is known: zoom and loop from the
+// URL's selection, intersected with the route.
+function adoptCurrentRoute(state) {
+  const drive = state.nav?.location?.base.drive;
+  if (state.currentRoute || !drive) return state;
+  const curr = state.routes?.find((route) => route.log_id === drive.logId);
+  if (!curr) return state;
+  state.currentRoute = { ...curr };
+  const zoom = effectiveZoom(drive, state.currentRoute);
+  if (!zoom) {
+    state.zoom = null;
+    state.loop = null;
+  } else if (!state.zoom || state.zoom.end !== zoom.end) {
+    state.zoom = zoom;
+    state.loop = null;
+  }
+  if (state.zoom && (!state.loop || !state.loop.startTime || !state.loop.duration)) {
+    state.loop = { startTime: state.zoom.start, duration: state.zoom.end - state.zoom.start };
+  }
+  return state;
+}
+
 export default function reducer(_state, action) {
+  // results of async work started in an earlier session carry its epoch
+  if (action.epoch !== undefined && action.epoch !== _state.sessionEpoch) {
+    return _state;
+  }
   let state = { ..._state };
   let deviceIndex = null;
   switch (action.type) {
@@ -157,7 +210,10 @@ export default function reducer(_state, action) {
       break;
     }
     case Types.ACTION_SESSION_ENDED:
-      state.sessionEpoch = (state.sessionEpoch || 0) + 1;
+      state = clearPrivateState(state);
+      break;
+    case Types.ACTION_PAIR_REQUESTED:
+      state.pairRequests = (state.pairRequests || 0) + 1;
       break;
     case Types.ACTION_SELECT_TIME_FILTER:
       state = {
@@ -431,6 +487,7 @@ export default function reducer(_state, action) {
       }
       break;
     case Types.ACTION_FILES_CANCELLED_UPLOADS:
+      if (action.dongleId !== state.dongleId) break;
       if (state.files) {
         const cancelFileNames = Object.keys(state.filesUploading)
           .filter((id) => action.ids.includes(id))
@@ -458,33 +515,21 @@ export default function reducer(_state, action) {
         start: action.start,
         end: action.end,
       };
-      const selectedRouteId = state.nav?.location?.base.drive?.logId;
-      if (!state.currentRoute && selectedRouteId) {
-        const curr = state.routes?.find((route) => route.log_id === selectedRouteId);
-        if (curr) {
-          state.currentRoute = {
-            ...curr,
-          };
-          const drive = state.nav.location.base.drive;
-          const zoom = effectiveZoom(drive, state.currentRoute);
-          if (!zoom) {
-            state.zoom = null;
-            state.loop = null;
-          } else if (!state.zoom || state.zoom.end !== zoom.end) {
-            state.zoom = zoom;
-            state.loop = null;
-          }
-
-          if (state.zoom && (!state.loop || !state.loop.startTime || !state.loop.duration)) {
-            state.loop = {
-              startTime: state.zoom.start,
-              duration: state.zoom.end - state.zoom.start,
-            };
-          }
-        }
-      }
+      state = adoptCurrentRoute(state);
       break;
     }
+    case Types.ACTION_ROUTE_DETAIL:
+      // a drive not in the loaded list: add it without replacing the list
+      if (action.dongleId !== state.dongleId) break;
+      state.routes = (state.routes || []).some((route) => route.fullname === action.route.fullname)
+        ? state.routes
+        : [...(state.routes || []), action.route];
+      state = adoptCurrentRoute(state);
+      break;
+    case Types.ACTION_ROUTE_DETAIL_MISSING:
+      if (action.dongleId !== state.dongleId) break;
+      state.missingRoute = `${action.dongleId}|${action.logId}`;
+      break;
     default:
       return state;
   }

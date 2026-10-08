@@ -16,4 +16,10 @@ export const selectSelectionOutOfRange = (state) => {
   return Boolean(drive && drive.start != null && state.currentRoute && drive.start >= state.currentRoute.duration);
 };
 
+// The selected drive was looked up and does not exist.
+export const selectSelectedRouteMissing = (state) => {
+  const base = selectNavLocation(state)?.base;
+  return Boolean(base?.drive && state.missingRoute === `${base.dongleId}|${base.drive.logId}`);
+};
+
 export const selectIsReferralsView = (state) => selectView(state) === VIEWS.REFERRALS;

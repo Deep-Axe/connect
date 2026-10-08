@@ -5,6 +5,8 @@ import { fallbackServices } from '../routing/services';
 
 import { ACTION_SESSION_ENDED, ACTION_STARTUP_DATA } from './types';
 
+const SESSION_REJECTED = Symbol('session rejected');
+
 async function initProfile() {
   const { auth, account } = api;
   if (auth.isAuthenticated()) {
@@ -13,6 +15,7 @@ async function initProfile() {
     } catch (err) {
       if (err.resp && err.resp.status === 401) {
         await auth.logOut();
+        return SESSION_REJECTED;
       } else {
         console.error(err);
         Sentry.captureException(err, { fingerprint: 'init_api_get_profile' });
@@ -45,20 +48,41 @@ async function initDevices() {
 export function bootstrapSession() {
   return (dispatch, getState, services = fallbackServices) => {
     if (!services.session.promise) {
-      services.session.promise = Promise.all([initProfile(), initDevices()]).then(([profile, devices]) => {
+      const epoch = getState().sessionEpoch;
+      const promise = Promise.all([initProfile(), initDevices()]).then(([profile, devices]) => {
+        if (profile === SESSION_REJECTED) {
+          // the token was refused: end the session like any other logout
+          dispatch(endSession());
+          return { profile: null, devices: [] };
+        }
+        if (getState().sessionEpoch !== epoch) {
+          // the session ended while loading: nothing of it may be installed
+          return { profile: null, devices: [] };
+        }
         if (profile) {
           Sentry.setUser({ id: profile.id });
         }
-        dispatch({ type: ACTION_STARTUP_DATA, profile, devices });
+        dispatch({ type: ACTION_STARTUP_DATA, profile, devices, epoch });
         return { profile, devices };
       });
+      services.session.promise = promise;
     }
     return services.session.promise;
   };
 }
 
-// The signed-in session ended (e.g. a 401). In-flight request results from
-// the old session are rejected by comparing state.sessionEpoch.
+// The signed-in session ended (e.g. a 401). Its private state is cleared,
+// its bootstrap and in-flight requests are discarded, and late results
+// carrying its epoch are ignored by the reducer.
 export function endSession() {
-  return { type: ACTION_SESSION_ENDED };
+  return (dispatch, getState, services = fallbackServices) => {
+    services.session.promise = null;
+    services.requests.routes = null;
+    services.requests.events.clear();
+    services.requests.coords.clear();
+    services.requests.driveCoords.clear();
+    services.commands.pairToken = null;
+    Sentry.setUser(null);
+    dispatch({ type: ACTION_SESSION_ENDED });
+  };
 }

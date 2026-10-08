@@ -10,6 +10,8 @@
 import { LOCATION_CHANGE, replace } from 'connected-react-router';
 
 import { NAVIGATION_COMMITTED } from '../actions/types';
+import { activeBackendType, selectBackendType } from '../api/backend';
+import { hardNavigate } from '../utils/navigation';
 import { buildUrl, parseLocation, sameBase, urlOfRouterLocation } from './codec';
 import { createEffectContext, runNavigationEffects } from './effects';
 
@@ -29,6 +31,14 @@ export function createRoutingMiddleware(services) {
     const result = next(action);
 
     const { location: routerLocation, action: historyAction } = action.payload;
+
+    // demo and real data never share a page load: crossing over reloads
+    const backendType = activeBackendType();
+    if (backendType && selectBackendType(routerLocation.pathname) !== backendType) {
+      hardNavigate(urlOfRouterLocation(routerLocation));
+      return result;
+    }
+
     services.history.observe(routerLocation, historyAction);
 
     const location = parseLocation(routerLocation);
@@ -54,7 +64,10 @@ export function createRoutingMiddleware(services) {
       // the state from before this non-canonical entry
       services.navigation.pendingCanonical = services.navigation.pendingCanonical
         ?? { url: canonical, previous, previousDongleId };
-      afterRender(() => store.dispatch(replace(canonical)));
+      afterRender(() => {
+        // a newer navigation wins over this queued rewrite
+        if (services.navigation.generation === generation) store.dispatch(replace(canonical));
+      });
       return result;
     }
 

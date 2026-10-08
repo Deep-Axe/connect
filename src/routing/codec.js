@@ -132,7 +132,14 @@ export function parseLocation({ pathname = '/', search = '', hash = '' } = {}) {
     }
   }
 
-  return { base, modal: null, commands, extensions, hash: hash === '#' ? '' : hash };
+  // an invalid location runs nothing: its commands are dropped with it
+  return {
+    base,
+    modal: null,
+    commands: base.view === VIEWS.INVALID ? {} : commands,
+    extensions,
+    hash: hash === '#' ? '' : hash,
+  };
 }
 
 function assertDongleId(dongleId) {
@@ -203,6 +210,23 @@ export function locationFor(base, from = null) {
     extensions: (from?.extensions || []).filter(([key]) => GLOBAL_EXTENSION_KEYS.includes(key)),
     hash: '',
   };
+}
+
+// The same thing on screen: device page or drive (any range), ignoring
+// the selection, modal and query.
+export function sameResource(a, b) {
+  if (!a || !b) return false;
+  return a.view === b.view && a.dongleId === b.dongleId && a.drive?.logId === b.drive?.logId;
+}
+
+// `base` reached from `from` keeping everything that belongs to the same
+// resource (unknown arguments in order, hash) when only the selection
+// changes, or only the global arguments when it is a different page.
+export function locationForEdit(base, from) {
+  if (from && sameResource(from.base, base)) {
+    return { base, modal: null, commands: {}, extensions: from.extensions, hash: from.hash };
+  }
+  return locationFor(base, from);
 }
 
 export function withoutCommands(location, keys) {

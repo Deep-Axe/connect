@@ -91,13 +91,21 @@ class ExplorerApp extends Component {
   }
 
   async componentDidMount() {
-    const { pairLoading, pairError, pairDongleId } = this.state;
-
     this.unsubscribeWindowSize = subscribeWindowSize(({ width }) => {
       this.setState({ windowWidth: width });
     });
 
     window.scrollTo({ top: 0 }); // for ios header
+
+    // e.g. start playback when the page opened on a drive selection
+    this.componentDidUpdate({ pairRequests: this.props.pairRequests });
+
+    // a token stored before a login redirect, or one that arrives by URL later
+    await this.pairFromStoredToken();
+  }
+
+  async pairFromStoredToken() {
+    const { pairLoading, pairError, pairDongleId } = this.state;
 
     let pairToken;
     try {
@@ -140,8 +148,6 @@ class ExplorerApp extends Component {
         this.setState({ pairDongleId: null, pairLoading: false, pairError: `Error: ${msg}, please try again` });
       }
     }
-
-    this.componentDidUpdate({});
   }
 
   componentWillUnmount() {
@@ -149,7 +155,11 @@ class ExplorerApp extends Component {
   }
 
   componentDidUpdate(prevProps) {
-    const { pathname, zoom } = this.props;
+    const { pathname, zoom, pairRequests } = this.props;
+
+    if (prevProps.pairRequests !== pairRequests) {
+      this.pairFromStoredToken();
+    }
 
     if (prevProps.pathname !== pathname) {
       this.setState({ drawerIsOpen: false });
@@ -280,6 +290,7 @@ const stateToProps = (state) => ({
   devices: state.devices,
   currentRoute: state.currentRoute,
   view: selectView(state),
+  pairRequests: state.pairRequests,
   profile: state.profile,
 });
 

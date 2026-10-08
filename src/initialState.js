@@ -31,6 +31,8 @@ export function createInitialState() {
     subscription: null,
     subscribeInfo: null,
     primeStripeResult: null,
+    pairRequests: 0,      // bumped when a pair token arrives by URL
+    missingRoute: null,   // 'dongle|log' a detail request found no route for
 
     files: null,
     filesUploading: {},

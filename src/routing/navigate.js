@@ -5,7 +5,7 @@
 import { goBack, push, replace } from 'connected-react-router';
 
 import {
-  VIEWS, buildUrl, deviceBase, driveBase, locationFor, locationOfUrl, parseLocation,
+  VIEWS, buildUrl, deviceBase, driveBase, locationForEdit, locationOfUrl, parseLocation,
   referralsBase, rootBase, urlOfRouterLocation,
 } from './codec';
 import { selectNavLocation } from './selectors';
@@ -27,7 +27,7 @@ export function navigateToLocation(location, { replace: replaceEntry = false } =
 }
 
 export function navigate(base, options) {
-  return (dispatch, getState) => dispatch(navigateToLocation(locationFor(base, selectNavLocation(getState())), options));
+  return (dispatch, getState) => dispatch(navigateToLocation(locationForEdit(base, selectNavLocation(getState())), options));
 }
 
 export const toRoot = () => navigate(rootBase());
