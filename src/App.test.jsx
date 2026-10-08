@@ -542,6 +542,21 @@ describe('whole-app behavior', () => {
       expect(await screen.findByText('Page not found')).toBeVisible();
     });
   });
+  test('adversarial Prime device transition uses the destination plan', async () => {
+    const primeDevices = devices.map((device) => ({ ...device, prime: true, prime_type: 2 }));
+    const subscription = {
+      user_id: 'test-user', plan: 'data', amount: 2400, is_prime_sim: false, trial_end: null,
+      next_charge_at: 1_900_000_000, subscribed_at: 1_700_000_000, cancel_at: null, requires_migration: false,
+    };
+    const { history } = await renderApp(`/${FIRST}/prime/change-plan`, { devices: primeDevices, subscription });
+    expect(await screen.findByRole('heading', { name: 'Switch to Lite plan' })).toBeVisible();
+    mocks.options.subscription = { ...subscription, plan: 'nodata', amount: 1400 };
+    act(() => { history.push(`/${SECOND}/prime/change-plan`); });
+    await waitFor(() => expect(mocks.requests.some(({ url: u }) => u.includes('/subscription') && new URL(u).searchParams.get('dongle_id') === SECOND)).toBe(true));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(screen.queryByRole('heading', { name: 'Switch to Standard plan' })).toBeVisible();
+  });
+
 
 });
 

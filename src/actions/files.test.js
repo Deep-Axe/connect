@@ -74,3 +74,49 @@ describe('upload queue poll', () => {
     expect(h.dispatch(uploadQueuePollers())).toBe(0);
   });
 });
+
+describe('adversarial upload owner retargeting', () => {
+  it('moving one consumer to another device releases its old device poll', async () => {
+    athena.postJsonRpcPayload.mockImplementation(async (dongleId, { method }) => (
+      method === 'listUploadQueue' ? { result: [queueItem(dongleId, `${dongleId}-1`)] } : { result: {} }
+    ));
+    const h = harness();
+    const owner = {};
+    h.dispatch(pollUploadQueue(owner, A));
+    await settle(); await settle();
+    h.getState().dongleId = B;
+    h.dispatch(pollUploadQueue(owner, B));
+    await settle(); await settle();
+    const observed = {
+      oldOwners: h.dispatch(uploadQueuePollers(A)),
+      oldTimer: Boolean(h.services.uploads.targets.get(A).timer),
+      newOwners: h.dispatch(uploadQueuePollers(B)),
+    };
+    h.dispatch(stopPollingUploadQueue(owner));
+    expect(observed).toEqual({ oldOwners: 0, oldTimer: false, newOwners: 1 });
+  });
+
+  it('returning to a target does not wait for its released old request', async () => {
+    const replies = [];
+    athena.postJsonRpcPayload.mockImplementation((dongleId, { method }) => {
+      if (method === 'listUploadQueue' && dongleId === A) return new Promise(resolve => replies.push(resolve));
+      return Promise.resolve({ result: method === 'listUploadQueue' ? [] : {} });
+    });
+    const h = harness();
+    const owner = {};
+    h.dispatch(pollUploadQueue(owner, A));
+    h.getState().dongleId = B;
+    h.dispatch(pollUploadQueue(owner, B));
+    h.getState().dongleId = A;
+    h.dispatch(pollUploadQueue(owner, A));
+    expect(replies).toHaveLength(2);
+    replies[0]({ result: [queueItem(A, 'old')] });
+    await settle();
+    expect(h.services.uploads.targets.get(A).inFlight).toBe(true); // old finally cannot release the new request
+    expect(h.getState().uploadQueues[A]).toBeUndefined();
+    replies[1]({ result: [queueItem(A, 'new')] });
+    await settle();
+    expect(Object.keys(h.getState().uploadQueues[A].uploading)).toEqual(['new']);
+    h.dispatch(stopPollingUploadQueue(owner));
+  });
+});

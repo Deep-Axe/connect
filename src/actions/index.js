@@ -439,10 +439,10 @@ export function refreshSubscription(dongleId) {
 // navigated elsewhere or the session ended meanwhile.
 export function leaveForExternalUrl(getUrl) {
   return async (dispatch, getState, services = fallbackServices) => {
-    const { generation } = services.navigation;
+    const { revision } = services.navigation;
     const epoch = getState().sessionEpoch;
     const url = await getUrl();
-    if (services.navigation.generation !== generation || getState().sessionEpoch !== epoch) return false;
+    if (services.navigation.revision !== revision || getState().sessionEpoch !== epoch) return false;
     hardNavigate(url);
     return true;
   };

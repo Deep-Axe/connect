@@ -21,6 +21,7 @@ async function invalidateClip(dongleId, filename) {
   for (const [key, entry] of activeDownloads.entries()) {
     if (key.startsWith(prefix)) {
       entry.cancelled = true;
+      entry.waiters.forEach((finish) => finish());
       entry.listeners.clear();
       activeDownloads.delete(key);
     }
@@ -29,7 +30,7 @@ async function invalidateClip(dongleId, filename) {
   await Promise.all(keys.filter(key => key.startsWith(prefix)).map(key => clipStorage.removeItem(key))).catch(() => {});
 }
 
-async function downloadClip(dongleId, filename, reportProgress, isCancelled) {
+async function downloadClip(dongleId, filename, reportProgress, isCancelled, waitForRetry) {
   const chunks = [];
   let loaded = 0;
   let size;
@@ -45,7 +46,7 @@ async function downloadClip(dongleId, filename, reportProgress, isCancelled) {
     let results;
     try {
       // eslint-disable-next-line no-await-in-loop
-      results = await Promise.all(offsets.map(offset => getClipChunk(dongleId, filename, offset)));
+      results = await Promise.all(offsets.map(offset => getClipChunk(dongleId, filename, offset, 0, isCancelled, waitForRetry)));
     } catch (error) {
       if (isCancelled()) throw new Error('Clip download cancelled');
       throw error;
@@ -80,36 +81,58 @@ export class ClipChangedError extends Error {
 // again after, and bytes are cached under a version only once it still holds.
 async function getClipBlob(dongleId, filename, requestedAt, onProgress, isCurrentVersion) {
   const key = cacheKey(dongleId, filename, requestedAt);
-  const stored = await clipStorage.getItem(key).catch(() => null);
-  if (stored instanceof Blob) return stored;
-
   let entry = activeDownloads.get(key);
   if (!entry) {
-    entry = { cancelled: false, listeners: new Set(), consumers: new Set(), loaded: 0, total: 0 };
-    const verify = async () => {
-      if (isCurrentVersion && !(await isCurrentVersion())) throw new ClipChangedError();
+    entry = { cancelled: false, listeners: new Set(), consumers: new Set(), waiters: new Set(), loaded: 0, total: 0 };
+    const assertWanted = () => {
+      if (entry.cancelled) throw new Error('Clip download cancelled');
     };
-    entry.promise = verify().then(() => downloadClip(dongleId, filename, (loaded, total) => {
-      entry.loaded = loaded;
-      entry.total = total;
-      for (const listener of entry.listeners) listener(loaded, total);
-    }, () => entry.cancelled)).then(async (blob) => {
+    const verify = async () => {
+      assertWanted();
+      if (isCurrentVersion && !(await isCurrentVersion())) throw new ClipChangedError();
+      assertWanted();
+    };
+    const waitForRetry = (delay) => new Promise((resolve) => {
+      const finish = () => {
+        clearTimeout(timer);
+        entry.waiters.delete(finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, delay);
+      entry.waiters.add(finish);
+      if (entry.cancelled) finish();
+    });
+    // Register the setup phase before any await: release must also reach a
+    // pending cache lookup, not only an already running transfer.
+    activeDownloads.set(key, entry);
+    entry.promise = (async () => {
+      const stored = await clipStorage.getItem(key).catch(() => null);
+      await verify(); // cached bytes still need a current version and owner
+      if (stored instanceof Blob) return stored;
+      const blob = await downloadClip(dongleId, filename, (loaded, total) => {
+        entry.loaded = loaded;
+        entry.total = total;
+        for (const listener of entry.listeners) listener(loaded, total);
+      }, () => entry.cancelled, waitForRetry);
       await verify();
-      if (entry.cancelled) throw new Error('Clip download cancelled'); // nobody wants it any more
       if (activeDownloads.get(key) === entry) await clipStorage.setItem(key, blob).catch(() => {});
+      assertWanted();
       return blob;
-    }).finally(() => {
+    })().finally(() => {
       if (activeDownloads.get(key) === entry) activeDownloads.delete(key);
     });
-    activeDownloads.set(key, entry);
   }
 
+  const consumer = onProgress || Symbol('clip consumer');
+  entry.consumers.add(consumer);
   if (onProgress) {
     entry.listeners.add(onProgress);
-    entry.consumers.add(onProgress);
     if (entry.total) onProgress(entry.loaded, entry.total);
   }
-  return entry.promise.finally(() => entry.listeners.delete(onProgress));
+  return entry.promise.finally(() => {
+    entry.listeners.delete(onProgress);
+    entry.consumers.delete(consumer);
+  });
 }
 
 // A consumer (identified by the progress callback it passed) no longer wants
@@ -122,6 +145,7 @@ function releaseClip(dongleId, filename, requestedAt, consumer) {
   entry.consumers.delete(consumer);
   if (entry.consumers.size === 0) {
     entry.cancelled = true;
+    entry.waiters.forEach((finish) => finish());
     activeDownloads.delete(key);
   }
 }
@@ -158,13 +182,15 @@ export function deviceSupportsClips(device) {
   return supportRequests.get(device.dongle_id);
 }
 
-async function getClipChunk(dongleId, filename, offset, attempt = 0) {
+async function getClipChunk(dongleId, filename, offset, attempt = 0, isCancelled = () => false, waitForRetry) {
+  if (isCancelled()) throw new Error('Clip download cancelled');
   try {
     return await call(dongleId, 'getClipChunk', { filename, offset });
   } catch (error) {
+    if (isCancelled()) throw new Error('Clip download cancelled');
     if (error.message !== 'Athena request failed' || attempt === CLIP_RETRY_DELAYS.length) throw error;
-    await new Promise(resolve => setTimeout(resolve, CLIP_RETRY_DELAYS[attempt]));
-    return getClipChunk(dongleId, filename, offset, attempt + 1);
+    await waitForRetry(CLIP_RETRY_DELAYS[attempt]);
+    return getClipChunk(dongleId, filename, offset, attempt + 1, isCancelled, waitForRetry);
   }
 }
 

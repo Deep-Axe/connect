@@ -166,6 +166,13 @@ export function stopAllUploadQueuePolls(services) {
 
 export function pollUploadQueue(owner, dongleId) {
   return (dispatch, getState, services = fallbackServices) => {
+    // A mounted consumer can move between devices. Its previous target no
+    // longer owns that consumer, while other consumers keep their poll.
+    services.uploads.targets.forEach((target, previousId) => {
+      if (previousId !== dongleId && target.owners.delete(owner) && target.owners.size === 0) {
+        stopUploadTarget(target);
+      }
+    });
     uploadTarget(services, dongleId).owners.add(owner);
     dispatch(fetchUploadQueue(dongleId));
   };

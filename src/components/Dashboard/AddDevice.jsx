@@ -262,9 +262,14 @@ export class AddDeviceDialog extends Component {
 
   async scanFrame() {
     if (!this.scanning || !this.videoRef || !this.detector) return;
+    const attempt = this.cameraAttempt;
+    const detector = this.detector;
+    const stillScanning = () => this.mounted && !this.closing && this.scanning
+      && attempt === this.cameraAttempt && detector === this.detector && this.videoRef;
 
     try {
-      const results = await this.detector.detect(this.videoRef);
+      const results = await detector.detect(this.videoRef);
+      if (!stillScanning()) return;
       if (results.length > 0) {
         this.onQrRead({ data: results[0].rawValue });
         return; // Stop scanning after detection
@@ -273,7 +278,7 @@ export class AddDeviceDialog extends Component {
       // Ignore detection errors, just keep scanning
     }
 
-    this.scanFrameId = requestAnimationFrame(this.scanFrame);
+    if (stillScanning()) this.scanFrameId = requestAnimationFrame(this.scanFrame);
   }
 
   startScanning() {
@@ -331,6 +336,9 @@ export class AddDeviceDialog extends Component {
   }
 
   async onQrRead({ data: result }) {
+    if (!this.mounted || this.closing) return;
+    const attempt = this.cameraAttempt;
+    const stillOpen = () => this.mounted && !this.closing && attempt === this.cameraAttempt;
     const { pairDongleId, pairError, pairLoading } = this.state;
     if (pairLoading || pairError || pairDongleId || !result) {
       return;
@@ -380,9 +388,11 @@ export class AddDeviceDialog extends Component {
     const { devices, dispatch } = this.props;
     try {
       const resp = await api.devices.pilotPair(pairToken);
+      if (!stillOpen()) return;
       if (resp.dongle_id) {
         if (devices.length > 0) { // state change from no device to a device requires reload.
           await dispatch(refreshDevices());
+          if (!stillOpen()) return;
           dispatch(analyticsEvent('pair_device', { method: 'add_device_sidebar' }));
         }
         this.setState({ pairLoading: false, pairDongleId: resp.dongle_id, pairError: null });
@@ -391,6 +401,7 @@ export class AddDeviceDialog extends Component {
         Sentry.captureMessage('qr scan failed', { extra: { resp } });
       }
     } catch (err) {
+      if (!stillOpen()) return;
       const msg = pairErrorToMessage(err, 'adddevice_pair_qr');
       this.setState({ pairLoading: false, pairDongleId: null, pairError: `Error: ${msg}` });
     }

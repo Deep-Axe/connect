@@ -812,3 +812,16 @@ describe('dialog results belong to their session and navigation', () => {
     expect(hardNavigate).not.toHaveBeenCalled();
   });
 });
+
+describe('adversarial task destination ownership', () => {
+  it('an external task completion cannot leave after another dialog became current', async () => {
+    let answer;
+    const { store } = await start(`/${A}/prime`);
+    const pending = store.dispatch(leaveForExternalUrl(() => new Promise(resolve => { answer = resolve; })));
+    store.dispatch(openModal(modalOf(MODALS.SETTINGS, { dongleId: A })));
+    await settle();
+    answer('https://billing.stripe.com/old-task');
+    expect(await pending).toBe(false);
+    expect(hardNavigate).not.toHaveBeenCalled();
+  });
+});

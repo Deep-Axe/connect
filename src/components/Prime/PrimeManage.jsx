@@ -1,4 +1,3 @@
-import { captureOperation } from '../../actions/owned';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import dayjs from 'dayjs';
@@ -12,6 +11,7 @@ import Colors from '../../colors';
 import { subscribeWindowSize } from '../../hooks/window';
 import { ErrorOutline, InfoOutline, KeyboardBackspaceIcon, PriorityHighIcon } from '../../icons';
 import { analyticsEvent, leaveForExternalUrl, refreshSubscription } from '../../actions';
+import { captureOperation } from '../../actions/owned';
 import { MODALS, modalOf } from '../../routing/codec';
 import { closeModal, leavePage, openModal } from '../../routing/navigate';
 import { selectNavLocation } from '../../routing/selectors';
@@ -236,6 +236,8 @@ export class PrimeManage extends Component {
       stripeStatus: null,
       windowWidth: window.innerWidth,
     };
+    this.timers = new Set();
+    this.runtimeGeneration = 0;
 
     this.cancelPrime = this.cancelPrime.bind(this);
     this.fetchStripeSession = this.fetchStripeSession.bind(this);
@@ -245,23 +247,50 @@ export class PrimeManage extends Component {
   }
 
   componentDidMount() {
+    this.mounted = true;
     this.unsubscribeWindowSize = subscribeWindowSize(({ width }) => {
       this.setState({ windowWidth: width });
     });
     this.componentDidUpdate({}, {});
-    this.mounted = true;
   }
 
   componentDidUpdate(prevProps, prevState) {
     const { subscription, modal } = this.props;
     const { stripeStatus } = this.state;
 
+    if (prevProps.dongleId !== undefined && (prevProps.dongleId !== this.props.dongleId
+      || prevProps.sessionEpoch !== this.props.sessionEpoch)) {
+      this.clearTimers();
+      this.runtimeGeneration += 1;
+      this.setState({
+        error: null, cancelError: null, cancelSuccess: null, canceling: false,
+        planSwitchStatus: 'confirm', planSwitchMessage: null, switchingPlan: false,
+        planSwitchTarget: modal === MODALS.PRIME_CHANGE_PLAN && subscription?.plan
+          ? otherPrimePlan(subscription.plan) : null,
+        stripeStatus: this.props.stripeSuccess
+          ? { sessionId: this.props.stripeSuccess, loading: true, paid: null } : null,
+      }, this.fetchStripeSession);
+      return;
+    }
+
     // the plan to switch to is fixed when the dialog opens (it flips once switched)
     if (modal === MODALS.PRIME_CHANGE_PLAN && !this.state.planSwitchTarget && subscription?.plan) {
       this.setState({ planSwitchTarget: otherPrimePlan(subscription.plan) });
     }
     if (prevProps.modal === MODALS.PRIME_CHANGE_PLAN && modal !== MODALS.PRIME_CHANGE_PLAN) {
-      this.setState({ planSwitchStatus: 'confirm', planSwitchMessage: null, planSwitchTarget: null });
+      this.setState({ planSwitchStatus: 'confirm', planSwitchMessage: null, planSwitchTarget: null, switchingPlan: false });
+    }
+    if (prevProps.modal === MODALS.PRIME_CANCEL && modal !== MODALS.PRIME_CANCEL) {
+      this.setState({ canceling: false, cancelError: null, cancelSuccess: null });
+    }
+    if (prevProps.taskLocation && prevProps.taskLocation !== this.props.taskLocation
+      && prevProps.modal === modal && (modal === MODALS.PRIME_CANCEL || modal === MODALS.PRIME_CHANGE_PLAN)) {
+      // Exact-location leases were released. The destination must not retain
+      // the abandoned operation's loading state, even when its kind matches.
+      this.setState({
+        switchingPlan: false, planSwitchStatus: 'confirm', planSwitchMessage: null,
+        canceling: false, cancelError: null, cancelSuccess: null,
+      });
     }
 
     if (!prevProps.stripeSuccess && this.props.stripeSuccess) {
@@ -278,16 +307,42 @@ export class PrimeManage extends Component {
 
   componentWillUnmount() {
     this.mounted = false;
+    this.runtimeGeneration += 1;
+    this.clearTimers();
     this.unsubscribeWindowSize?.();
   }
 
+  captureLease(location = false) {
+    const { dongleId, dispatch } = this.props;
+    const generation = this.runtimeGeneration;
+    const operation = dispatch(captureOperation({ location, resource: (state) => state.dongleId === dongleId }));
+    return {
+      ...operation,
+      active: () => this.mounted && generation === this.runtimeGeneration && operation.isCurrent(),
+    };
+  }
+
+  clearTimers() {
+    this.timers.forEach(clearTimeout);
+    this.timers.clear();
+  }
+
+  scheduleRefresh(callback, lease) {
+    if (!lease.active()) return;
+    const timer = setTimeout(() => {
+      this.timers.delete(timer);
+      if (lease.active()) callback();
+    }, 2000);
+    this.timers.add(timer);
+  }
+
   cancelPrime() {
-    const dongleId = this.props.dongleId;
-    const operation = this.props.dispatch(captureOperation({ resource: (state) => state.dongleId === dongleId }));
+    const lease = this.captureLease(true);
+    if (!lease.active()) return;
     this.setState({ canceling: true });
     this.props.dispatch(analyticsEvent('prime_cancel', { plan: this.props.subscription.plan }));
-    Billing.cancelPrime(dongleId).then((resp) => {
-      if (!this.mounted || !operation.isCurrent()) return;
+    Billing.cancelPrime(this.props.dongleId).then((resp) => {
+      if (!lease.active()) return;
       if (resp.success) {
         this.setState({ canceling: false, cancelError: null, cancelSuccess: 'Cancelled subscription.' });
         this.fetchSubscription();
@@ -297,7 +352,7 @@ export class PrimeManage extends Component {
         this.setState({ canceling: false, cancelError: 'Could not cancel due to unknown error. Please try again.' });
       }
     }).catch((err) => {
-      if (!this.mounted || !operation.isCurrent()) return;
+      if (!lease.active()) return;
       Sentry.captureException(err, { fingerprint: 'primemanage_cancel_prime' });
       this.setState({ canceling: false, cancelError: 'Could not cancel due to unknown error. Please try again.' });
     });
@@ -317,9 +372,9 @@ export class PrimeManage extends Component {
   }
 
   async switchPlan() {
-    const { dispatch, dongleId, subscription } = this.props;
-    const operation = dispatch(captureOperation({ resource: (state) => state.dongleId === dongleId }));
-    const active = () => this.mounted && operation.isCurrent();
+    const { dongleId, subscription } = this.props;
+    const lease = this.captureLease(true);
+    if (!lease.active()) return;
     const plan = this.state.planSwitchTarget || otherPrimePlan(subscription.plan);
     const planName = primePlanName(plan);
     this.setState({
@@ -330,17 +385,17 @@ export class PrimeManage extends Component {
     });
     try {
       const subscribeInfo = plan === 'data' ? await Billing.getSubscribeInfo(dongleId) : null;
-      if (!active()) return;
+      if (!lease.active()) return;
       const response = await Billing.switchPrimePlan(dongleId, plan, subscribeInfo?.sim_id);
-      if (!active()) return;
+      if (!lease.active()) return;
       if (!response?.success) {
         const error = new Error('Unexpected billing response');
         error.code = 'unexpected_response';
         throw error;
       }
-      operation.dispatch(analyticsEvent('prime_switch_plan', { from: subscription.plan, to: plan }));
+      lease.dispatch(analyticsEvent('prime_switch_plan', { from: subscription.plan, to: plan }));
       await this.fetchSubscription();
-      if (active()) {
+      if (lease.active()) {
         this.setState({
           planSwitchStatus: 'success',
           planSwitchMessage: `Your subscription has been switched to ${planName} successfully.`,
@@ -349,11 +404,11 @@ export class PrimeManage extends Component {
     } catch (err) {
       Sentry.captureException(err, { fingerprint: 'primemanage_switch_plan' });
       const message = primeSwitchErrorMessage(err, plan);
-      if (active()) {
+      if (lease.active()) {
         this.setState({ planSwitchStatus: 'error', planSwitchMessage: message });
       }
     } finally {
-      if (active()) {
+      if (lease.active()) {
         this.setState({ switchingPlan: false });
       }
     }
@@ -365,11 +420,11 @@ export class PrimeManage extends Component {
     if (!stripeStatus || !this.mounted) {
       return;
     }
+    const lease = this.captureLease();
 
-    const operation = this.props.dispatch(captureOperation({ resource: (state) => state.dongleId === dongleId }));
     try {
       const resp = await Billing.getStripeSession(dongleId, stripeStatus.sessionId);
-      if (!this.mounted || !operation.isCurrent()) return;
+      if (!lease.active() || this.state.stripeStatus?.sessionId !== stripeStatus.sessionId) return;
       const status = resp.payment_status;
       this.setState({ stripeStatus: {
         ...stripeStatus,
@@ -379,9 +434,10 @@ export class PrimeManage extends Component {
       if (status === 'paid') {
         this.fetchSubscription(true);
       } else {
-        setTimeout(this.fetchStripeSession, 2000);
+        this.scheduleRefresh(this.fetchStripeSession, lease);
       }
     } catch (err) {
+      if (!lease.active()) return;
       // TODO error handling
       console.error(err);
       Sentry.captureException(err, { fingerprint: 'prime_fetch_stripe_session' });
@@ -393,18 +449,18 @@ export class PrimeManage extends Component {
     if (!this.mounted) {
       return;
     }
-    const operation = this.props.dispatch(captureOperation({ resource: (state) => state.dongleId === dongleId }));
+    const lease = this.captureLease();
     try {
-      const subscription = await operation.dispatch(refreshSubscription(dongleId));
-      if (!this.mounted || !operation.isCurrent()) return;
+      const subscription = await this.props.dispatch(refreshSubscription(dongleId));
+      if (!lease.active()) return;
       if (!subscription?.user_id) {
-        setTimeout(() => this.fetchSubscription(true), 2000);
+        this.scheduleRefresh(() => this.fetchSubscription(true), lease);
       }
     } catch (err) {
-      if (!this.mounted || !operation.isCurrent()) return;
+      if (!lease.active()) return;
       if (err.message && err.message.indexOf('404') === 0) {
         if (repeat) {
-          setTimeout(() => this.fetchSubscription(true), 2000);
+          this.scheduleRefresh(() => this.fetchSubscription(true), lease);
         }
       } else {
         console.error(err);
@@ -744,6 +800,8 @@ const stateToProps = (state) => ({
   device: state.device,
   subscription: state.subscription,
   modal: selectNavLocation(state)?.modal?.kind ?? null,
+  taskLocation: selectNavLocation(state),
+  sessionEpoch: state.sessionEpoch,
 });
 
 export default connect(stateToProps)(withStyles(styles)(PrimeManage));
