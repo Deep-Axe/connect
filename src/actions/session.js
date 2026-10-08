@@ -1,6 +1,12 @@
 import * as Sentry from '@sentry/react';
+import { storage as AuthStorage } from '@commaai/my-comma-auth';
+import { hardNavigate } from '../utils/navigation';
+import { urlOfRouterLocation } from '../routing/codec';
 
 import { api } from '../api/backend';
+import { request, athena, billing } from '../api';
+import { webrtcConnectionManager } from '../utils/webrtc';
+import { clearPairToken } from '../routing/pairToken';
 import { fallbackServices } from '../routing/services';
 
 import { ACTION_SESSION_ENDED, ACTION_STARTUP_DATA } from './types';
@@ -56,9 +62,14 @@ export function bootstrapSession() {
           return { profile: null, devices: [] };
         }
         if (profile === SESSION_REJECTED) {
-          // the token was refused: end the session like any other logout
-          await api.auth.logOut();
-          if (getState().sessionEpoch === epoch) dispatch(endSession());
+          // Invalidate private work immediately. The SDK's higher-level
+          // logout redirects after storage yields, outside our epoch guard.
+          dispatch(endSession());
+          const endedEpoch = getState().sessionEpoch;
+          await AuthStorage.logOut();
+          if (getState().sessionEpoch === endedEpoch) {
+            hardNavigate(urlOfRouterLocation(getState().router?.location ?? window.location));
+          }
           return { profile: null, devices: [] };
         }
         if (profile) {
@@ -79,15 +90,30 @@ export function bootstrapSession() {
 export function endSession() {
   return (dispatch, getState, services = fallbackServices) => {
     services.session.promise = null;
+    services.history.reset();
+    services.navigation.generation += 1;
+    services.navigation.revision += 1;
+    services.navigation.pendingCanonical = null;
+    webrtcConnectionManager.disconnect();
+    request.configure(null);
+    athena.configure(null);
+    billing.configure(null);
     services.requests.routes = null;
     services.requests.routesLatest.clear();
     services.requests.events.clear();
     services.requests.coords.clear();
     services.requests.driveCoords.clear();
     services.commands.pairTokens.clear();
+    services.commands.pairPromises?.clear();
+    clearPairToken(services).catch((error) => {
+      console.error('Could not clear the pairing token', error);
+      Sentry.captureException(error, { fingerprint: 'session_clear_pair_token' });
+    });
     if (services.uploads.timer) clearTimeout(services.uploads.timer);
     services.uploads.timer = null;
     services.uploads.run += 1;
+    services.uploads.inFlight = false;
+    services.uploads.request = null;
     Sentry.setUser(null);
     dispatch({ type: ACTION_SESSION_ENDED });
   };

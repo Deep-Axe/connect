@@ -1,3 +1,4 @@
+import { captureOperation } from '../../actions/owned';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
@@ -198,7 +199,7 @@ const MediaType = {
   MAP: 'map',
 };
 
-class Media extends Component {
+export class Media extends Component {
   constructor(props) {
     super(props);
 
@@ -253,6 +254,11 @@ class Media extends Component {
   }
 
   componentDidUpdate(prevProps, prevState) {
+    if (prevProps.currentRoute?.fullname !== this.props.currentRoute?.fullname) {
+      this.routeRuntimeGeneration = (this.routeRuntimeGeneration ?? 0) + 1;
+      this.routeViewed = false;
+      this.setState({ routePreserved: null });
+    }
     const { windowWidth, inView, downloadMenu, moreInfoMenu, routePreserved } = this.state;
     const showMapAlways = windowWidth >= 1536;
     if (prevProps.dongleId !== this.props.dongleId) {
@@ -363,6 +369,9 @@ class Media extends Component {
       type,
     }));
 
+    const operation = this.props.dispatch(captureOperation({
+      resource: (state) => state.currentRoute?.fullname === currentRoute.fullname,
+    }));
     const routeNoDongleId = currentRoute.fullname.split('|')[1];
     const fileName = `${dongleId}|${routeNoDongleId}--${getSegmentNumber(currentRoute)}/${type}`;
 
@@ -377,12 +386,16 @@ class Media extends Component {
     for (const fn of FILE_NAMES[type]) {
       const path = `${routeNoDongleId}--${getSegmentNumber(currentRoute)}/${fn}`;
       paths.push(path);
-      url_promises.push(fetchUploadUrls(dongleId, [path]).then(urls => urls[0]));
+      url_promises.push(fetchUploadUrls(dongleId, [path]).then(urls => urls?.[0]));
     }
 
     const urls = await Promise.all(url_promises);
-    if (urls) {
-      this.props.dispatch(doUpload(dongleId, paths, urls));
+    if (!this.mounted || !operation.isCurrent()) return;
+    if (Array.isArray(urls) && urls.length === paths.length && urls.every(url => typeof url === 'string' && url.length)) {
+      operation.dispatch(doUpload(dongleId, paths, urls));
+    } else {
+      // Grant failures remain retryable instead of leaving "requested" forever.
+      operation.dispatch(updateFiles(Object.fromEntries(Object.keys(uploading).map(name => [name, {}])), dongleId));
     }
   }
 
@@ -396,6 +409,9 @@ class Media extends Component {
       return;
     }
 
+    const operation = this.props.dispatch(captureOperation({
+      resource: (state) => state.currentRoute?.fullname === currentRoute.fullname,
+    }));
     this.props.dispatch(analyticsEvent('files_upload_all', {
       types: types.length === 1 && types[0] === 'logs' ? 'logs' : 'all',
     }));
@@ -421,8 +437,12 @@ class Media extends Component {
     });
 
     const urls = await fetchUploadUrls(dongleId, paths);
-    if (urls) {
-      this.props.dispatch(doUpload(dongleId, paths, urls));
+    if (!this.mounted || !operation.isCurrent()) return;
+    if (Array.isArray(urls) && urls.length === paths.length && urls.every(url => typeof url === 'string' && url.length)) {
+      operation.dispatch(doUpload(dongleId, paths, urls));
+    } else {
+      // Grant failures remain retryable instead of leaving "requested" forever.
+      operation.dispatch(updateFiles(Object.fromEntries(Object.keys(uploading).map(name => [name, {}])), dongleId));
     }
   }
 
@@ -483,18 +503,38 @@ class Media extends Component {
     window.location.href = file.url;
   }
 
+  routeOperation(kind) {
+    const fullname = this.props.currentRoute?.fullname;
+    if (!fullname) return null;
+    this.routeAttempts ??= {};
+    const generation = this.routeRuntimeGeneration ?? 0;
+    const attempt = (this.routeAttempts[kind] ?? 0) + 1;
+    this.routeAttempts[kind] = attempt;
+    const lease = this.props.dispatch(captureOperation({
+      resource: (state) => state.currentRoute?.fullname === fullname,
+    }));
+    return {
+      fullname, dongleId: this.props.dongleId, dispatch: lease.dispatch,
+      active: () => this.mounted && lease.isCurrent()
+        && this.props.currentRoute?.fullname === fullname && this.routeAttempts[kind] === attempt
+        && (this.routeRuntimeGeneration ?? 0) === generation,
+    };
+  }
+
   async onPublicToggle(ev) {
     const isPublic = ev.target.checked;
+    const operation = this.routeOperation('public');
+    if (!operation?.active()) return null;
     try {
-      const resp = await api.routes.setRoutePublic(this.props.currentRoute.fullname, isPublic);
-      if (resp && resp.fullname === this.props.currentRoute.fullname) {
-        this.props.dispatch(updateRoute(this.props.currentRoute.fullname, { is_public: resp.is_public }));
-        if (resp.is_public !== isPublic) {
-          return { error: 'unable to update' };
-        }
+      const resp = await api.routes.setRoutePublic(operation.fullname, isPublic);
+      if (!operation.active()) return null;
+      if (resp && resp.fullname === operation.fullname) {
+        operation.dispatch(updateRoute(operation.fullname, { is_public: resp.is_public }));
+        if (resp.is_public !== isPublic) return { error: 'unable to update' };
       }
       return null;
     } catch (err) {
+      if (!operation.active()) return null;
       console.error(err);
       Sentry.captureException(err, { fingerprint: 'media_toggle_public' });
       return { error: 'could not update' };
@@ -502,16 +542,15 @@ class Media extends Component {
   }
 
   async fetchRoutePreserved() {
+    const operation = this.routeOperation('preserved');
+    if (!operation?.active()) return;
     try {
-      const resp = await api.routes.getPreservedRoutes(this.props.dongleId);
-      if (resp && Array.isArray(resp) && this.props.currentRoute) {
-        if (resp.find((r) => r.fullname === this.props.currentRoute.fullname)) {
-          this.setState({ routePreserved: true });
-          return;
-        }
-        this.setState({ routePreserved: false });
+      const resp = await api.routes.getPreservedRoutes(operation.dongleId);
+      if (operation.active() && Array.isArray(resp)) {
+        this.setState({ routePreserved: resp.some((route) => route.fullname === operation.fullname) });
       }
     } catch (err) {
+      if (!operation.active()) return;
       console.error(err);
       Sentry.captureException(err, { fingerprint: 'media_fetch_preserved' });
     }
@@ -519,18 +558,22 @@ class Media extends Component {
 
   async onPreserveToggle(ev) {
     const preserved = ev.target.checked;
+    const operation = this.routeOperation('preserved');
+    if (!operation?.active()) return null;
     try {
-      const resp = await api.routes.setRoutePreserved(this.props.currentRoute.fullname, preserved);
-      if (resp && resp.success) {
+      const resp = await api.routes.setRoutePreserved(operation.fullname, preserved);
+      if (!operation.active()) return null;
+      if (resp?.success) {
         this.setState({ routePreserved: preserved });
         return null;
       }
-      this.fetchRoutePreserved();
+      await this.fetchRoutePreserved();
       return { error: 'unable to update' };
     } catch (err) {
+      if (!operation.active()) return null;
       console.error(err);
       Sentry.captureException(err, { fingerprint: 'media_toggle_preserved' });
-      this.fetchRoutePreserved();
+      await this.fetchRoutePreserved();
       return { error: 'could not update' };
     }
   }

@@ -1,3 +1,4 @@
+import { captureOperation } from '../../actions/owned';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
 import dayjs from 'dayjs';
@@ -273,9 +274,12 @@ export class PrimeManage extends Component {
   }
 
   cancelPrime() {
+    const dongleId = this.props.dongleId;
+    const operation = this.props.dispatch(captureOperation({ resource: (state) => state.dongleId === dongleId }));
     this.setState({ canceling: true });
     this.props.dispatch(analyticsEvent('prime_cancel', { plan: this.props.subscription.plan }));
-    Billing.cancelPrime(this.props.dongleId).then((resp) => {
+    Billing.cancelPrime(dongleId).then((resp) => {
+      if (!this.mounted || !operation.isCurrent()) return;
       if (resp.success) {
         this.setState({ canceling: false, cancelError: null, cancelSuccess: 'Cancelled subscription.' });
         this.fetchSubscription();
@@ -285,15 +289,19 @@ export class PrimeManage extends Component {
         this.setState({ canceling: false, cancelError: 'Could not cancel due to unknown error. Please try again.' });
       }
     }).catch((err) => {
+      if (!this.mounted || !operation.isCurrent()) return;
       Sentry.captureException(err, { fingerprint: 'primemanage_cancel_prime' });
       this.setState({ canceling: false, cancelError: 'Could not cancel due to unknown error. Please try again.' });
     });
   }
 
   async gotoUpdate() {
+    const dongleId = this.props.dongleId;
+    const operation = this.props.dispatch(captureOperation({ resource: (state) => state.dongleId === dongleId }));
     this.props.dispatch(analyticsEvent('prime_stripe_update', { plan: this.props.subscription.plan }));
     try {
-      const resp = await Billing.getStripePortal(this.props.dongleId);
+      const resp = await Billing.getStripePortal(dongleId);
+      if (!this.mounted || !operation.isCurrent()) return;
       window.location = resp.url;
     } catch (err) {
       // TODO show error messages
@@ -304,6 +312,8 @@ export class PrimeManage extends Component {
 
   async switchPlan() {
     const { dispatch, dongleId, subscription } = this.props;
+    const operation = dispatch(captureOperation({ resource: (state) => state.dongleId === dongleId }));
+    const active = () => this.mounted && operation.isCurrent();
     const plan = this.state.planSwitchTarget || otherPrimePlan(subscription.plan);
     const planName = primePlanName(plan);
     this.setState({
@@ -314,15 +324,17 @@ export class PrimeManage extends Component {
     });
     try {
       const subscribeInfo = plan === 'data' ? await Billing.getSubscribeInfo(dongleId) : null;
+      if (!active()) return;
       const response = await Billing.switchPrimePlan(dongleId, plan, subscribeInfo?.sim_id);
+      if (!active()) return;
       if (!response?.success) {
         const error = new Error('Unexpected billing response');
         error.code = 'unexpected_response';
         throw error;
       }
-      dispatch(analyticsEvent('prime_switch_plan', { from: subscription.plan, to: plan }));
+      operation.dispatch(analyticsEvent('prime_switch_plan', { from: subscription.plan, to: plan }));
       await this.fetchSubscription();
-      if (this.mounted) {
+      if (active()) {
         this.setState({
           planSwitchStatus: 'success',
           planSwitchMessage: `Your subscription has been switched to ${planName} successfully.`,
@@ -331,11 +343,11 @@ export class PrimeManage extends Component {
     } catch (err) {
       Sentry.captureException(err, { fingerprint: 'primemanage_switch_plan' });
       const message = primeSwitchErrorMessage(err, plan);
-      if (this.mounted) {
+      if (active()) {
         this.setState({ planSwitchStatus: 'error', planSwitchMessage: message });
       }
     } finally {
-      if (this.mounted) {
+      if (active()) {
         this.setState({ switchingPlan: false });
       }
     }
@@ -348,8 +360,10 @@ export class PrimeManage extends Component {
       return;
     }
 
+    const operation = this.props.dispatch(captureOperation({ resource: (state) => state.dongleId === dongleId }));
     try {
       const resp = await Billing.getStripeSession(dongleId, stripeStatus.sessionId);
+      if (!this.mounted || !operation.isCurrent()) return;
       const status = resp.payment_status;
       this.setState({ stripeStatus: {
         ...stripeStatus,
@@ -373,14 +387,17 @@ export class PrimeManage extends Component {
     if (!this.mounted) {
       return;
     }
+    const operation = this.props.dispatch(captureOperation({ resource: (state) => state.dongleId === dongleId }));
     try {
       const subscription = await Billing.getSubscription(dongleId);
+      if (!this.mounted || !operation.isCurrent()) return;
       if (subscription.user_id) {
-        this.props.dispatch(primeGetSubscription(dongleId, subscription));
+        operation.dispatch(primeGetSubscription(dongleId, subscription));
       } else {
         setTimeout(() => this.fetchSubscription(true), 2000);
       }
     } catch (err) {
+      if (!this.mounted || !operation.isCurrent()) return;
       if (err.message && err.message.indexOf('404') === 0) {
         if (repeat) {
           setTimeout(() => this.fetchSubscription(true), 2000);

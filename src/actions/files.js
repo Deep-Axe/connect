@@ -30,11 +30,13 @@ function pathToFileName(dongleId, path) {
   return `${dongleId}|${seg}/${type}`;
 }
 
-async function athenaCall(dongleId, payload, sentryFingerprint, retryCount = 0) {
+async function athenaCall(dongleId, payload, sentryFingerprint, isCurrent = () => true, retryCount = 0) {
   try {
+    if (!isCurrent()) return null;
     while (openRequests > MAX_OPEN_REQUESTS) {
       // eslint-disable-next-line no-await-in-loop
       await asyncSleep(2000);
+      if (!isCurrent()) return null;
     }
     openRequests += 1;
     const resp = await Athena.postJsonRpcPayload(dongleId, payload);
@@ -44,7 +46,7 @@ async function athenaCall(dongleId, payload, sentryFingerprint, retryCount = 0) 
     openRequests -= 1;
     if (!err.resp && retryCount < MAX_RETRIES) {
       await asyncSleep(2000);
-      return athenaCall(dongleId, payload, sentryFingerprint, retryCount + 1);
+      return athenaCall(dongleId, payload, sentryFingerprint, isCurrent, retryCount + 1);
     }
     if (err.message && (err.message.indexOf('Timed out') === -1
       || err.message.indexOf('Device not registered') === -1)) {
@@ -57,7 +59,8 @@ async function athenaCall(dongleId, payload, sentryFingerprint, retryCount = 0) 
 }
 
 export function setRouteViewed(dongleId, route) {
-  return async (dispatch, getState) => {
+  return async (rawDispatch, getState) => {
+    const dispatch = ownedDispatch(rawDispatch, getState);
     const { device } = getState();
     if (!deviceVersionAtLeast(device, '0.9.6')) {
       return;
@@ -69,7 +72,7 @@ export function setRouteViewed(dongleId, route) {
       method: 'setRouteViewed',
       params: { route },
     };
-    await athenaCall(dongleId, payload, 'action_files_set_route_viewed');
+    await athenaCall(dongleId, payload, 'action_files_set_route_viewed', dispatch.isCurrent);
   };
 }
 
@@ -141,6 +144,8 @@ function stopUploadQueueTimer(services) {
   if (services.uploads.timer) clearTimeout(services.uploads.timer);
   services.uploads.timer = null;
   services.uploads.run += 1;
+  services.uploads.inFlight = false;
+  services.uploads.request = null;
 }
 
 export function cancelFetchUploadQueue() {
@@ -154,6 +159,8 @@ export function fetchUploadQueue(dongleId) {
       return;
     }
     services.uploads.inFlight = true;
+    const request = {};
+    services.uploads.request = request;
     const { run } = services.uploads;
     const epoch = getState().sessionEpoch;
     try {
@@ -161,7 +168,10 @@ export function fetchUploadQueue(dongleId) {
         getState().sessionEpoch === epoch && services.uploads.run === run
       ));
     } finally {
-      services.uploads.inFlight = false;
+      if (services.uploads.request === request) {
+        services.uploads.inFlight = false;
+        services.uploads.request = null;
+      }
     }
   };
 }
@@ -174,7 +184,7 @@ async function pollUploadQueueOnce(dongleId, dispatch, getState, services, still
     jsonrpc: '2.0',
     id: 0,
   };
-  const uploadQueue = await athenaCall(dongleId, payload, 'action_files_athena_uploadqueue');
+  const uploadQueue = await athenaCall(dongleId, payload, 'action_files_athena_uploadqueue', stillWanted);
   // the session ended or polling stopped meanwhile: touch nothing
   if (!stillWanted()) return;
   if (!uploadQueue || !Array.isArray(uploadQueue.result)) {
@@ -257,7 +267,8 @@ export function doUpload(dongleId, paths, urls) {
         params: { files_data: filesData },
         expiry: Math.floor(Date.now() / 1000) + (86400 * 7),
       };
-      const resp = await athenaCall(dongleId, payload, 'action_files_athena_uploads');
+      const resp = await athenaCall(dongleId, payload, 'action_files_athena_uploads', dispatch.isCurrent);
+      if (!dispatch.isCurrent()) return;
       if (resp && resp.error && resp.error.code === -32000
         && resp.error.data.message === 'too many values to unpack (expected 3)') {
         loopedUploads = true;
@@ -304,6 +315,7 @@ export function doUpload(dongleId, paths, urls) {
 
     if (loopedUploads) {
       for (let i = 0; i < paths.length; i++) {
+        if (!dispatch.isCurrent()) return;
         const payload = {
           id: 0,
           jsonrpc: '2.0',
@@ -312,7 +324,8 @@ export function doUpload(dongleId, paths, urls) {
           expiry: Math.floor(Date.now() / 1000) + (86400 * 7),
         };
         // eslint-disable-next-line no-await-in-loop
-        const resp = await athenaCall(dongleId, payload, 'files_actions_athena_upload');
+        const resp = await athenaCall(dongleId, payload, 'files_actions_athena_upload', dispatch.isCurrent);
+        if (!dispatch.isCurrent()) return;
         if (!resp || resp.error) {
           const uploading = {};
           uploading[pathToFileName(dongleId, paths[i])] = {};
@@ -377,7 +390,7 @@ export function cancelUploads(dongleId, ids) {
       method: 'cancelUpload',
       params: { upload_id: ids },
     };
-    const resp = await athenaCall(dongleId, payload, 'action_files_athena_canceluploads');
+    const resp = await athenaCall(dongleId, payload, 'action_files_athena_canceluploads', dispatch.isCurrent);
     if (resp && resp.result && resp.result.success) {
       const idsArray = Array.isArray(ids) ? ids : [ids];
       dispatch({

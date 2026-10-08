@@ -3,6 +3,9 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { createMemoryHistory } from 'history';
 
 import App from './App';
+import MyCommaAuth, {storage as AuthStorage} from '@commaai/my-comma-auth';
+import { request as Request } from './api';
+import { endSession } from './actions/session';
 import { createInitialState } from './initialState';
 import { selectSelectedRouteId } from './routing/selectors';
 import { createAppStore } from './store';
@@ -16,7 +19,7 @@ vi.mock('@commaai/my-comma-auth', () => ({
     logOut: vi.fn(),
   },
   config: { AUTH_PATH: '/auth/' },
-  storage: { setCommaAccessToken: vi.fn() },
+  storage: { setCommaAccessToken: vi.fn(), logOut: vi.fn() },
 }));
 vi.mock('./utils/navigation', () => ({ hardNavigate: mocks.hardNavigate }));
 vi.mock('./utils/turn', () => ({ fetchTurnCredentials: vi.fn(async () => null) }));
@@ -186,8 +189,8 @@ describe('whole-app behavior', () => {
   test.each([['no stored device', undefined], ['an unknown stored device', 'dddddddddddddddd']])('root selects first device with %s', async (_name, selected) => {
     const { history } = await renderApp('/', { selected });
     expect(await screen.findByText('Mock recent route start')).toBeVisible();
-    expect(history.location.pathname).toBe(`/${FIRST}`);
-    expect(localStorage.getItem('selectedDongleId')).toBe(FIRST);
+    expect(history.location.pathname).toBe(`/${SECOND}`);
+    expect(localStorage.getItem('selectedDongleId')).toBe(SECOND);
   });
 
   test('root with no devices shows pairing', async () => {
@@ -307,4 +310,50 @@ describe('whole-app behavior', () => {
     fireEvent.click(within(document.body).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(history.location.pathname).toBe(`/${FIRST}`));
   });
+  test('AUDIT anonymous landing -> public drive selects public view without remounting App', async () => {
+    const app=await renderApp('/', {authenticated:false});
+    expect(screen.getByText('Sign in with Google')).toBeVisible();
+    await act(async()=>{app.history.push(`/${FIRST}/${LOG}/0/20`);await new Promise(r=>setTimeout(r,10));});
+    expect(screen.queryByText('Sign in with Google')).not.toBeInTheDocument();
+    expect(await screen.findByRole('slider',{name:'Drive timeline'})).toBeVisible();
+  });
+  test('AUDIT public drive -> dashboard selects login view without remounting App', async () => {
+    const app=await renderApp(`/${FIRST}/${LOG}/0/20`, {authenticated:false});
+    expect(await screen.findByRole('slider',{name:'Drive timeline'})).toBeVisible();
+    await act(async()=>{app.history.push(`/${FIRST}`);await new Promise(r=>setTimeout(r,10));});
+    expect(screen.getByText('Sign in with Google')).toBeVisible();
+  });
+  test('AUDIT query-only login return change updates stored full return location', async () => {
+    const first=`/${FIRST}/${LOG}/0/20?x=one#first`;
+    const second=`/${SECOND}/${LOG}/1/10?x=two#second`;
+    const app=await renderApp(`/?r=${encodeURIComponent(first)}`,{authenticated:false});
+    expect(sessionStorage.getItem('redirectURL')).toBe(first);
+    await act(async()=>{app.history.push(`/?r=${encodeURIComponent(second)}`);await new Promise(r=>setTimeout(r,10));});
+    expect(sessionStorage.getItem('redirectURL')).toBe(second);
+  });
+});
+
+test('an authorized 401 clears private ownership and reloads the complete public URL', async()=>{
+ const history=createMemoryHistory({initialEntries:[`/${FIRST}/${LOG}?ext=kept#bookmark`]});
+ const store=createAppStore(history,createInitialState());
+ const app=new App({store,history});
+ await app.apiErrorResponseCallback({status:401});
+ expect(store.getState().sessionEpoch).toBe(1);
+ expect(mocks.hardNavigate).toHaveBeenCalledWith(`/${FIRST}/${LOG}?ext=kept#bookmark`);
+});
+
+test('delayed startup auth cannot configure an ended session',async()=>{
+ const history=createMemoryHistory({initialEntries:[`/${FIRST}/stream`]});
+ const store=createAppStore(history,createInitialState());const app=new App({store,history});
+ app.setState=vi.fn();let resolve;
+ MyCommaAuth.init.mockImplementationOnce(()=>new Promise(r=>resolve=r));
+ const pending=app.componentDidMount();store.dispatch(endSession());resolve('old-token');await pending;
+ expect(Request.headers.Authorization).toBeUndefined();expect(app.setState).not.toHaveBeenCalled();
+});
+test('delayed 401 logout cannot reload a successor session',async()=>{
+ const history=createMemoryHistory({initialEntries:[`/${FIRST}/${LOG}`]});
+ const store=createAppStore(history,createInitialState());const app=new App({store,history});let resolve;
+ AuthStorage.logOut.mockImplementationOnce(()=>new Promise(r=>resolve=r));mocks.hardNavigate.mockClear();
+ const pending=app.apiErrorResponseCallback({status:401});store.dispatch(endSession());resolve();await pending;
+ expect(mocks.hardNavigate).not.toHaveBeenCalled();
 });

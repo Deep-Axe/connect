@@ -2,6 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WebRTCConnectionManager, webrtcConnectionManager as liveManager } from './webrtc';
+import { endSession } from '../actions/session';
+import { createRoutingServices } from '../routing/services';
 import { runNavigationEffects } from '../routing/effects';
 
 const A = 'aaaaaaaaaaaaaaaa';
@@ -145,4 +147,27 @@ describe('stream ownership', () => {
     expect(kept).toBe(true);
     expect(owner).toBeNull();
   });
+});
+
+describe('EXHAUSTIVE invalid exit and logout on actual manager',()=>{
+ it('AUDIT invalid destination still closes the old car transport',()=>{
+  liveManager.disconnect();const factory=liveManager.createConnection;
+  liveManager.createConnection=fakeConnection;
+  try{
+   liveManager.enterStream(A);const connection=liveManager.connection;
+   runNavigationEffects(null,{base:{view:'invalid',dongleId:null},commands:{}},{isCurrent:()=>true,isLatest:()=>true,previousDongleId:A,getState:()=>({dongleId:A,device:{dongle_id:A,rpc:{not_car:false}},devices:[]}),dispatch:vi.fn(),services:{commands:{pairTokens:new Set()}}});
+   expect(connection.disconnect).toHaveBeenCalled();
+   expect(liveManager.streamDongleId).toBeNull();
+  }finally{liveManager.disconnect();liveManager.createConnection=factory;}
+ });
+ it('AUDIT ending auth session tears down actual stream transport',()=>{
+  liveManager.disconnect();const factory=liveManager.createConnection;
+  liveManager.createConnection=fakeConnection;
+  try{
+   liveManager.enterStream(A);const connection=liveManager.connection;
+   endSession()(vi.fn(),()=>({sessionEpoch:0}),createRoutingServices());
+   expect(connection.disconnect).toHaveBeenCalled();
+   expect(liveManager.streamDongleId).toBeNull();
+  }finally{liveManager.disconnect();liveManager.createConnection=factory;}
+ });
 });

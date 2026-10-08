@@ -53,10 +53,12 @@ const AnonymousLanding = ({ classes, commands, currentUrl }) => {
   useEffect(() => {
     if (typeof window.sessionStorage !== 'undefined') {
       // return to the complete requested location after signing in
-      const redirectURL = commands.r ?? sessionStorage.getItem('redirectURL') ?? currentUrl;
+      const redirectURL = commands.r ?? currentUrl;
       if (isSafeReturnUrl(redirectURL)) sessionStorage.setItem('redirectURL', redirectURL);
     }
+  }, [commands.r, currentUrl]);
 
+  useEffect(() => {
     const handleSuccess = (data) => {
       const { code, state } = data.detail.authorization;
       window.location = `${AuthConfig.APPLE_REDIRECT_PATH}?${stringifyQuery({ code, state })}`;

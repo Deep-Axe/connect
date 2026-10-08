@@ -11,6 +11,7 @@
 // unknown query arguments preserved in order but never executed.
 
 import { DEMO_DONGLE_ID } from '../api/demo';
+import { config as AuthConfig } from '@commaai/my-comma-auth';
 
 export const DONGLE_ID_RE = /^[0-9a-f]{16}$/;
 export const LOG_ID_RE = /^[0-9a-f-]{20}$/;
@@ -83,13 +84,15 @@ function splitPath(pathname) {
   }
 }
 
-function parseBase(parts) {
+function parseBase(parts, pathname) {
   if (parts === null) return invalidBase('malformed-path');
   const [first, second, third, fourth] = parts;
   const n = parts.length;
 
   if (n === 0) return rootBase();
-  if (first === 'auth') return emptyBase(VIEWS.AUTH);
+  const callbackPaths = [AuthConfig.AUTH_PATH, AuthConfig.APPLE_REDIRECT_PATH].filter(Boolean)
+    .map((path) => path.replace(/\/$/, ''));
+  if (callbackPaths.includes(pathname.replace(/\/$/, ''))) return emptyBase(VIEWS.AUTH);
   if (n === 1 && first === 'referrals') return referralsBase();
   if (n === 1 && first === 'demo') return deviceBase(VIEWS.DASHBOARD, DEMO_DONGLE_ID);
   if (!DONGLE_ID_RE.test(first)) return invalidBase('unknown-path');
@@ -114,7 +117,7 @@ function parseBase(parts) {
 }
 
 export function parseLocation({ pathname = '/', search = '', hash = '' } = {}) {
-  let base = parseBase(splitPath(pathname));
+  let base = parseBase(splitPath(pathname), pathname);
   const commands = {};
   const extensions = [];
   const seen = new Set();
@@ -169,9 +172,12 @@ function buildPath(base) {
       if (!range) throw new Error(`invalid drive range: ${start}-${end}`);
       return `/${base.dongleId}/${logId}/${start / 1000}/${end / 1000}`;
     }
-    case VIEWS.LEGACY_RANGE:
+    case VIEWS.LEGACY_RANGE: {
       assertDongleId(base.dongleId);
-      return `/${base.dongleId}/${base.legacyRange.start}/${base.legacyRange.end}`;
+      const range = legacyMillis(String(base.legacyRange?.start), String(base.legacyRange?.end));
+      if (!range) throw new Error('invalid legacy range');
+      return `/${base.dongleId}/${range.start}/${range.end}`;
+    }
     default:
       return null;
   }

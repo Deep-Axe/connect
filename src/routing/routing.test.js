@@ -42,7 +42,7 @@ vi.mock('../api/backend', () => ({
   },
 }));
 vi.mock('../api', () => ({
-  athena: {}, billing: { getSubscribeInfo: vi.fn(async () => null), getSubscription: vi.fn(async () => null) },
+  request: {configure:vi.fn()}, athena: {configure:vi.fn()}, billing: {configure:vi.fn(), getSubscribeInfo: vi.fn(async () => null), getSubscription: vi.fn(async () => null) },
 }));
 vi.mock('../utils/webrtc', () => {
   // tracks which device's stream page holds the connection, like the real one

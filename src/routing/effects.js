@@ -6,7 +6,7 @@
 
 import { replace } from 'connected-react-router';
 import * as Sentry from '@sentry/react';
-import localforage from 'localforage';
+import { storePairToken } from './pairToken';
 
 import { api } from '../api/backend';
 import {
@@ -29,30 +29,44 @@ function rememberedOrFirstDevice(devices) {
 
 // A pair token from the URL is stored (it survives a login redirect) and
 // handed to the explorer, once per token per session.
-async function receivePairToken(token, ctx) {
-  const { pairTokens } = ctx.services.commands;
-  if (pairTokens.has(token)) return;
-  pairTokens.add(token);
+function receivePairToken(token, ctx) {
+  const { commands } = ctx.services;
+  commands.pairPromises ??= new Map();
+  if (commands.pairPromises.has(token)) return commands.pairPromises.get(token);
+  if (commands.pairTokens.has(token)) return Promise.resolve();
+  commands.pairTokens.add(token);
   const epoch = ctx.getState().sessionEpoch;
-  try {
-    await localforage.setItem('pairToken', token);
-  } catch (err) {
+  const wanted = () => ctx.isLatest() || ctx.getState().nav?.location?.commands.pair === token;
+  const pending = ctx.dispatch(storePairToken(token, wanted)).then((stored) => {
+    if (!stored) {
+      if (ctx.getState().sessionEpoch === epoch) commands.pairTokens.delete(token);
+      return;
+    }
+    if (ctx.getState().sessionEpoch === epoch) ctx.dispatch({ type: ACTION_PAIR_REQUESTED });
+  }).catch((err) => {
     console.error(err);
-    pairTokens.delete(token); // not stored: the same link may try again
-    return;
-  }
-  if (ctx.getState().sessionEpoch !== epoch) return;
-  ctx.dispatch({ type: ACTION_PAIR_REQUESTED });
+    if (ctx.getState().sessionEpoch === epoch) commands.pairTokens.delete(token); // failed storage remains retryable
+  }).finally(() => {
+    if (commands.pairPromises.get(token) === pending) commands.pairPromises.delete(token);
+  });
+  commands.pairPromises.set(token, pending);
+  return pending;
 }
 
 // One-shot query arguments: act on them, then drop them from the URL. Returns
 // true only when the location is being replaced by a different page (a
 // post-login return target); otherwise the page's own effects still run, and
 // the follow-up commit without the arguments is a no-op.
-function consumeCommands(next, ctx) {
+async function consumeCommands(next, ctx) {
   const { commands, base } = next;
   const { dispatch } = ctx;
   const consumed = [];
+
+  if (!ctx.isLatest()) return false;
+  // Pair handover precedes a sibling return redirect. Persisting may yield,
+  // so authorize that redirect again after the prerequisite.
+  if (commands.pair) await receivePairToken(commands.pair, ctx);
+  if (!ctx.isCurrent() || !ctx.isLatest()) return true;
 
   // post-login return target; anonymous visitors keep it for the landing page
   if (commands.r != null && api.auth.isAuthenticated()) {
@@ -72,8 +86,6 @@ function consumeCommands(next, ctx) {
     });
   }
 
-  if (commands.pair) receivePairToken(commands.pair, ctx);
-
   consumed.push(...CONSUMED_COMMANDS.filter((key) => commands[key] != null));
   // rewrite only the exact location the commands came from; a newer one (even
   // on the same page) is left as it is
@@ -87,9 +99,9 @@ function consumeCommands(next, ctx) {
 // and the hash
 async function resolveRoot(next, ctx) {
   if (!api.auth.isAuthenticated()) return;
-  const { devices } = await ctx.session();
+  await ctx.session();
   if (!ctx.isCurrent()) return;
-  const device = rememberedOrFirstDevice(devices || []);
+  const device = rememberedOrFirstDevice(ctx.getState().devices || []);
   if (device) {
     // from the latest location on this page, which may carry newer context
     const latest = ctx.latestLocation();
@@ -119,7 +131,7 @@ async function selectedDeviceChanged(dongleId, ctx) {
   window.localStorage.setItem('selectedDongleId', dongleId);
 
   const { devices, profile } = await ctx.session();
-  if (getState().dongleId !== dongleId) return;
+  if (!ctx.isCurrent() || getState().dongleId !== dongleId) return;
   const device = (devices || []).find((d) => d.dongle_id === dongleId);
   if ((device && !device.shared) || profile?.superuser) {
     dispatch(primeFetchSubscription(dongleId, device, profile));
@@ -138,13 +150,12 @@ function ensureRoutes(ctx) {
 // pages that show the device's drives
 const ROUTE_VIEWS = [VIEWS.DASHBOARD, VIEWS.DRIVE];
 
-export function runNavigationEffects(previous, next, ctx) {
+export async function runNavigationEffects(previous, next, ctx) {
   const { base } = next;
-  // superseded before it ran, or an invalid link: nothing to do
-  if (!ctx.isCurrent() || base.view === VIEWS.INVALID) return;
-  if (consumeCommands(next, ctx)) return;
+  // Work from a superseded page cannot enter resources or release its successor.
+  if (!ctx.isCurrent()) return;
 
-  const run = (effect) => Promise.resolve().then(effect).catch((err) => {
+  const run = (effect) => Promise.resolve().then(() => ctx.isCurrent() ? effect() : undefined).catch((err) => {
     console.error(err);
     Sentry.captureException(err, { fingerprint: 'navigation_effect' });
   });
@@ -160,6 +171,9 @@ export function runNavigationEffects(previous, next, ctx) {
     const left = getDeviceFromState(ctx.getState(), streaming);
     webrtcConnectionManager.leaveStream(streaming, { keepWarm: Boolean(left?.rpc?.not_car) });
   }
+  if (base.view === VIEWS.INVALID) return;
+  if (Object.keys(next.commands).length && await consumeCommands(next, ctx)) return;
+  if (!ctx.isCurrent()) return;
   if (deviceChanged) webrtcConnectionManager.deviceChanged(dongleId);
   if (base.view === VIEWS.STREAM) webrtcConnectionManager.enterStream(base.dongleId);
 

@@ -1,6 +1,7 @@
+import { captureOperation } from '../actions/owned';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
-import localforage from 'localforage';
+import { readPairToken, removePairToken } from '../routing/pairToken';
 
 import { withStyles, Button, CircularProgress, Modal, Paper, Typography } from '@material-ui/core';
 import 'mapbox-gl/src/css/mapbox-gl.css';
@@ -67,7 +68,7 @@ const styles = (theme) => ({
   },
 });
 
-class ExplorerApp extends Component {
+export class ExplorerApp extends Component {
   constructor(props) {
     super(props);
 
@@ -91,6 +92,7 @@ class ExplorerApp extends Component {
   }
 
   async componentDidMount() {
+    this.mounted = true;
     this.unsubscribeWindowSize = subscribeWindowSize(({ width }) => {
       this.setState({ windowWidth: width });
     });
@@ -105,29 +107,34 @@ class ExplorerApp extends Component {
   }
 
   async pairFromStoredToken() {
-    const { pairLoading, pairError, pairDongleId } = this.state;
-
+    const operation = this.props.dispatch(captureOperation());
+    const active = () => this.mounted && operation.isCurrent();
     let pairToken;
     try {
-      pairToken = await localforage.getItem('pairToken');
+      pairToken = await operation.dispatch(readPairToken());
     } catch (err) {
       console.error(err);
     }
+    if (!active()) return;
+    const { pairLoading, pairError, pairDongleId } = this.state;
     if (pairToken && !pairLoading && !pairError && !pairDongleId) {
+      this.activePairToken = pairToken;
       this.setState({ pairLoading: true });
 
       try {
         verifyPairToken(pairToken, true, 'explorer_pair_verify_pairtoken');
       } catch (err) {
         this.setState({ pairLoading: false, pairDongleId: null, pairError: `Error: ${err.message}` });
-        await localforage.removeItem('pairToken');
+        if (active()) await operation.dispatch(removePairToken(pairToken));
         return;
       }
 
       try {
         const resp = await api.devices.pilotPair(pairToken);
+        if (!active()) return;
         if (resp.dongle_id) {
-          await localforage.removeItem('pairToken');
+          if (active()) await operation.dispatch(removePairToken(pairToken));
+          if (!active()) return;
           this.setState({
             pairLoading: false,
             pairError: null,
@@ -135,15 +142,18 @@ class ExplorerApp extends Component {
           });
 
           const devices = await api.devices.listDevices();
-          this.props.dispatch(updateDevices(devices));
+          if (!active()) return;
+          operation.dispatch(updateDevices(devices));
           this.props.dispatch(analyticsEvent('pair_device', { method: 'url_string' }));
         } else {
-          await localforage.removeItem('pairToken');
+          if (active()) await operation.dispatch(removePairToken(pairToken));
+          if (!active()) return;
           console.log(resp);
           this.setState({ pairDongleId: null, pairLoading: false, pairError: 'Error: could not pair, please try again' });
         }
       } catch (err) {
-        await localforage.removeItem('pairToken');
+        if (active()) await operation.dispatch(removePairToken(pairToken));
+        if (!active()) return;
         const msg = pairErrorToMessage(err, 'explorer_pair_pairtoken');
         this.setState({ pairDongleId: null, pairLoading: false, pairError: `Error: ${msg}, please try again` });
       }
@@ -151,6 +161,7 @@ class ExplorerApp extends Component {
   }
 
   componentWillUnmount() {
+    this.mounted = false;
     this.unsubscribeWindowSize?.();
   }
 
@@ -174,12 +185,18 @@ class ExplorerApp extends Component {
   }
 
   async closePair() {
+    const operation = this.props.dispatch(captureOperation());
+    const active = () => this.mounted && operation.isCurrent();
     const { pairDongleId } = this.state;
-    await localforage.removeItem('pairToken');
+    if (active()) await operation.dispatch(removePairToken(this.activePairToken));
+    if (!active()) return;
     if (pairDongleId) {
       this.props.dispatch(toDashboard(pairDongleId));
     }
-    this.setState({ pairLoading: false, pairError: null, pairDongleId: null });
+    this.activePairToken = null;
+    this.setState({ pairLoading: false, pairError: null, pairDongleId: null }, () => {
+      if (active()) this.pairFromStoredToken();
+    });
   }
 
   handleDrawerStateChanged(drawerOpen) {

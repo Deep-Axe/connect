@@ -16,6 +16,7 @@ export function createHistoryTracker() {
   const entryOf = (location) => ({ key: location.key ?? null, url: urlOfRouterLocation(location) });
 
   return {
+    reset() { entries = []; index = -1; },
     observe(location, historyAction) {
       const entry = entryOf(location);
       if (index < 0) {

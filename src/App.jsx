@@ -2,16 +2,19 @@ import React, { Component, lazy, Suspense } from 'react';
 import { Provider } from 'react-redux';
 import { Route, Switch, Redirect } from 'react-router-dom';
 import { ConnectedRouter } from 'connected-react-router';
+import { connect } from 'react-redux';
 import * as Sentry from '@sentry/react';
 
 import MyCommaAuth, { config as AuthConfig, storage as AuthStorage } from '@commaai/my-comma-auth';
 import { athena as Athena, billing as Billing, request as Request } from './api';
 import { api, initBackend } from './api/backend';
 
-import { VIEWS, isSafeReturnUrl, parseLocation } from './routing/codec';
+import { VIEWS, isSafeReturnUrl, parseLocation, urlOfRouterLocation } from './routing/codec';
 import { bootstrapSession, endSession } from './actions/session';
+import { captureOperation } from './actions/owned';
 import { webrtcConnectionManager } from './utils/webrtc';
 import { fetchTurnCredentials } from './utils/turn';
+import { hardNavigate } from './utils/navigation';
 import defaultStore, { history as defaultHistory } from './store';
 
 import ErrorFallback from './components/ErrorFallback';
@@ -19,6 +22,23 @@ import FullPageLoading from './components/FullPageLoading';
 
 const Explorer = lazy(() => import('./components/explorer'));
 const AnonymousLanding = lazy(() => import('./components/anonymous'));
+
+const NavigationContent = connect((state) => ({
+  view: state.nav?.location?.base.view,
+  epoch: state.sessionEpoch,
+}))(({ view, redirectLink }) => {
+  const showLogin = !api.auth.isAuthenticated() && view !== VIEWS.DRIVE && view !== VIEWS.LEGACY_RANGE;
+  return (
+    <Switch>
+      {view === VIEWS.AUTH && (
+        <Route exact path={[AuthConfig.AUTH_PATH, AuthConfig.APPLE_REDIRECT_PATH].filter(Boolean)}>
+          <Redirect to={showLogin ? '/' : redirectLink()} />
+        </Route>
+      )}
+      <Route path="/" component={showLogin ? AnonymousLanding : Explorer} />
+    </Switch>
+  );
+});
 
 class App extends Component {
   constructor(props) {
@@ -38,24 +58,35 @@ class App extends Component {
     return this.props.history || defaultHistory;
   }
 
-  apiErrorResponseCallback(resp) {
+  async apiErrorResponseCallback(resp) {
     if (resp.status === 401) {
-      MyCommaAuth.logOut();
+      const logout = AuthStorage.logOut();
       this.store().dispatch(endSession());
+      const epoch = this.store().getState().sessionEpoch;
+      await logout;
+      // Reload the complete destination as anonymous: a public drive must
+      // fetch its public data again after private data was cleared.
+      if (this.store().getState().sessionEpoch === epoch) {
+        hardNavigate(urlOfRouterLocation(this.history().location));
+      }
     }
   }
 
   async componentDidMount() {
+    this.mounted = true;
+    const operation = this.store().dispatch(captureOperation());
+    const active = () => this.mounted && operation.isCurrent();
     // Select the API backend once during startup: /demo gets the demo backend,
     // everything else the real backend.
     initBackend();
 
     const { base, commands } = parseLocation(this.history().location);
     if (base.view === VIEWS.AUTH) {
-      if (this.history().location.pathname === AuthConfig.AUTH_PATH) {
+      if (this.history().location.pathname.replace(/\/$/, '') === AuthConfig.AUTH_PATH.replace(/\/$/, '')) {
         try {
           const { provider } = commands;
           const token = await api.auth.refreshAccessToken(commands.code, provider);
+          if (!active()) return;
           if (token) {
             AuthStorage.setCommaAccessToken(token);
             localStorage.setItem('lastLoginProvider', provider);
@@ -67,16 +98,24 @@ class App extends Component {
       }
     }
 
+    if (!active()) return;
     const token = await MyCommaAuth.init();
+    if (!active()) return;
     if (token) {
-      Request.configure(token, this.apiErrorResponseCallback);
-      Billing.configure(token, this.apiErrorResponseCallback);
-      Athena.configure(token, this.apiErrorResponseCallback);
+      const epoch = this.store().getState().sessionEpoch;
+      const onError = (response) => {
+        if (this.store().getState().sessionEpoch === epoch) return this.apiErrorResponseCallback(response);
+        return undefined;
+      };
+      Request.configure(token, onError);
+      Billing.configure(token, onError);
+      Athena.configure(token, onError);
 
       // Reloading: start the webrtc handshake as soon as the API is authed, so it runs in parallel
       // with the lazy explorer chunk load and redux/device init instead of behind them.
-      if (base.view === VIEWS.STREAM) {
-        webrtcConnectionManager.enterStream(base.dongleId);
+      const currentBase = parseLocation(this.history().location).base;
+      if (currentBase.view === VIEWS.STREAM) {
+        webrtcConnectionManager.enterStream(currentBase.dongleId);
       }
 
       fetchTurnCredentials().catch((err) => {
@@ -91,6 +130,10 @@ class App extends Component {
     this.setState({ initialized: true });
   }
 
+  componentWillUnmount() {
+    this.mounted = false;
+  }
+
   redirectLink() {
     let url = '/';
     if (typeof window.sessionStorage !== 'undefined' && sessionStorage.getItem('redirectURL') !== null) {
@@ -100,28 +143,6 @@ class App extends Component {
     return isSafeReturnUrl(url) ? url : '/';
   }
 
-  authRoutes() {
-    return (
-      <Switch>
-        <Route path="/auth/">
-          <Redirect to={this.redirectLink()} />
-        </Route>
-        <Route path="/" component={Explorer} />
-      </Switch>
-    );
-  }
-
-  anonymousRoutes() {
-    return (
-      <Switch>
-        <Route path="/auth/">
-          <Redirect to="/" />
-        </Route>
-        <Route path="/" component={AnonymousLanding} />
-      </Switch>
-    );
-  }
-
   render() {
     if (!this.state.initialized) {
       return <FullPageLoading />;
@@ -129,12 +150,9 @@ class App extends Component {
 
     const store = this.store();
     const history = this.history();
-    // signed-out visitors can open public drives (and legacy drive links)
-    const { view } = parseLocation(history.location).base;
-    const showLogin = !api.auth.isAuthenticated() && view !== VIEWS.DRIVE && view !== VIEWS.LEGACY_RANGE;
     let content = (
       <Suspense fallback={<FullPageLoading />}>
-        { showLogin ? this.anonymousRoutes() : this.authRoutes() }
+        <NavigationContent redirectLink={() => this.redirectLink()} />
       </Suspense>
     );
 

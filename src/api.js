@@ -19,19 +19,20 @@ class ApiRequest {
     this.baseUrl = `${baseUrl.replace(/\/?$/, '/')}`;
     this.headers = { 'Content-Type': 'application/json' };
     this.errorResponseCallback = null;
+    this.configurationRevision = 0;
   }
 
   configure(accessToken, errorResponseCallback = null) {
-    if (accessToken) {
-      this.headers.Authorization = `JWT ${accessToken}`;
-    }
-    if (errorResponseCallback) {
-      this.errorResponseCallback = errorResponseCallback;
-    }
+    this.configurationRevision += 1;
+    if (accessToken) this.headers.Authorization = `JWT ${accessToken}`;
+    else delete this.headers.Authorization;
+    this.errorResponseCallback = accessToken ? errorResponseCallback : null;
   }
 
   async request(method, endpoint, params, json = true, responseJson = true, throwOnError = false) {
     const headers = { ...this.headers };
+    const callback = this.errorResponseCallback;
+    const revision = this.configurationRevision;
     if (!json) {
       headers['Content-Type'] = 'application/x-www-form-urlencoded';
     }
@@ -52,8 +53,10 @@ class ApiRequest {
     }
     const response = await fetch(url, options);
     if (!response.ok) {
-      if (this.errorResponseCallback) {
-        await this.errorResponseCallback(response);
+      if (callback) {
+        // Reconfiguration cannot lend a newer session's callback to old work,
+        // nor authorize an old callback to end that newer session.
+        if (revision === this.configurationRevision) await callback(response);
         if (!throwOnError) return null;
       }
       throw new RequestError(response, `${response.status}: ${await response.text()}`);
@@ -90,8 +93,10 @@ export const account = {
 
 export const auth = {
   async refreshAccessToken(code, provider) {
+    const revision = request.configurationRevision;
     const response = await request.postForm('v2/auth/', { code, provider });
-    if (response.access_token != null) {
+    if (revision !== request.configurationRevision) return null;
+    if (response?.access_token != null) {
       request.configure(response.access_token);
       return response.access_token;
     }
